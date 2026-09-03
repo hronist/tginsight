@@ -1,0 +1,85 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: #f4f1ee;
+  --foreground: #2f2b29;
+  --card: #ffffff;
+  --card-foreground: #2f2b29;
+  --popover: #ffffff;
+  --popover-foreground: #2f2b29;
+  --border: rgba(109, 96, 88, 0.22);
+  --input: rgba(109, 96, 88, 0.28);
+  --muted: #f0ebe7;
+  --muted-foreground: #817873;
+  --primary: #e76f51;
+  --primary-foreground: #fff8f5;
+  --secondary: #f9ded5;
+  --secondary-foreground: #4a413d;
+  --accent: #f9ded5;
+  --accent-foreground: #a84e39;
+  --destructive: #c44a4a;
+  --destructive-foreground: #ffffff;
+  --ring: #e76f51;
+  --radius: 0.65rem;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+mark {
+  background: #f6c8ba;
+  color: #733326;
+  border-radius: 2px;
+  padding: 0 2px;
+}
