@@ -57,6 +57,17 @@ function yieldToUi(): Promise<void> {
   });
 }
 
+function formatRetrieveOnlyAnswer(
+  chunks: { text: string; score: number }[],
+): string {
+  const body = chunks
+    .map(
+      (c, i) => `### ${i + 1} · score ${c.score.toFixed(3)}\n${c.text}`,
+    )
+    .join("\n\n");
+  return `Локальный поиск (без LLM — добавьте API ключ в Настройках для ответа модели):\n\n${body}`;
+}
+
 function resolveBuildScope(args: {
   entireChat: boolean;
   dateFrom: string | null;
@@ -357,6 +368,21 @@ export function RagProvider({ children }: { children: ReactNode }) {
           settings.maxContextTokens,
           overhead,
         );
+
+        const hasKey = Boolean(settings.apiKey.trim());
+        if (!hasKey) {
+          const answer = formatRetrieveOnlyAnswer(trimmedChunks);
+          setStreamingAnswer(answer);
+          await addQueryHistory({
+            prompt: trimmed,
+            response: answer,
+            createdAt: Date.now(),
+            retrievedChunkIds: trimmedChunks.map((c) => c.id),
+          });
+          await refreshHistory();
+          setStreamingAnswer("");
+          return;
+        }
 
         const messages = buildRagMessages({
           systemPrompt: settings.systemPrompt,

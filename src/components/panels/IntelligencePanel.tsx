@@ -177,7 +177,7 @@ export function IntelligencePanel() {
                 <CardDescription className="text-[10px]">
                   Контекст:{" "}
                   {indexReady
-                    ? `${indexCount.toLocaleString()} чанков`
+                    ? `${indexCount.toLocaleString()} чанков · поиск без ключа, LLM — с ключом`
                     : meta
                       ? "индекс не собран"
                       : "нет данных"}
