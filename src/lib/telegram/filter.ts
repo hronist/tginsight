@@ -11,8 +11,10 @@ export type FilterCriteria = {
   authorHandles: string[];
   /** RegExp source strings or literals */
   keywordPatterns: string[];
-  /** YYYY-MM */
-  months: string[];
+  /** Inclusive YYYY-MM-DD; null/empty = open bound */
+  dateFrom: string | null;
+  /** Inclusive YYYY-MM-DD; null/empty = open bound */
+  dateTo: string | null;
 };
 
 export type FilterHit = {
@@ -71,26 +73,56 @@ function matchesAuthor(
 
 function matchesKeywords(message: NormalizedMessage, regexes: RegExp[]): boolean {
   if (regexes.length === 0) return false;
-  return regexes.some((re) => re.test(message.text));
+  return regexes.every((re) => re.test(message.text));
 }
 
-function matchesMonth(message: NormalizedMessage, months: string[]): boolean {
-  if (months.length === 0) return true;
-  return months.includes(message.month);
+/** Local calendar day YYYY-MM-DD from Telegram `date` string. */
+export function messageDay(message: NormalizedMessage): string {
+  return message.date.slice(0, 10);
 }
 
-export function hasAuthorOrKeywordFilter(criteria: FilterCriteria): boolean {
+function matchesDateRange(
+  message: NormalizedMessage,
+  dateFrom: string | null,
+  dateTo: string | null,
+): boolean {
+  if (!dateFrom && !dateTo) return true;
+  const day = messageDay(message);
+  if (dateFrom && day < dateFrom) return false;
+  if (dateTo && day > dateTo) return false;
+  return true;
+}
+
+export function hasDateFilter(criteria: FilterCriteria): boolean {
+  return Boolean(criteria.dateFrom || criteria.dateTo);
+}
+
+export function hasAuthorFilter(criteria: FilterCriteria): boolean {
   return (
     criteria.authorIds.length > 0 ||
     criteria.authorNames.length > 0 ||
-    criteria.authorHandles.length > 0 ||
-    criteria.keywordPatterns.some((p) => p.trim().length > 0)
+    criteria.authorHandles.length > 0
   );
 }
 
-/** At least one month or author/keyword constraint must be set. */
+export function hasKeywordFilter(criteria: FilterCriteria): boolean {
+  return criteria.keywordPatterns.some((p) => p.trim().length > 0);
+}
+
+export function hasAuthorOrKeywordFilter(criteria: FilterCriteria): boolean {
+  return hasAuthorFilter(criteria) || hasKeywordFilter(criteria);
+}
+
+/** At least one date or author/keyword constraint must be set. */
 export function hasActiveFilter(criteria: FilterCriteria): boolean {
-  return criteria.months.length > 0 || hasAuthorOrKeywordFilter(criteria);
+  return hasDateFilter(criteria) || hasAuthorOrKeywordFilter(criteria);
+}
+
+/** Last day of YYYY-MM as YYYY-MM-DD. */
+export function monthEndDay(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return `${month}-${String(last).padStart(2, "0")}`;
 }
 
 export function buildDefaultCriteria(months: string[]): FilterCriteria | null {
@@ -101,15 +133,16 @@ export function buildDefaultCriteria(months: string[]): FilterCriteria | null {
     authorNames: [],
     authorHandles: [],
     keywordPatterns: [],
-    months: [lastMonth],
+    dateFrom: `${lastMonth}-01`,
+    dateTo: monthEndDay(lastMonth),
   };
 }
 
 /**
- * Filter rules:
- * - months: AND constraint (empty = any month)
- * - authors OR keywords: if any author/keyword filter set, message must match at least one
- * - if neither author nor keyword filters: all indexable messages in selected months
+ * Filter rules (AND between dimensions; unset dimension is skipped):
+ * - dateFrom/dateTo ∧ authors ∧ keywords
+ * - authors among themselves: OR (любой из выбранных)
+ * - keywords among themselves: AND (все паттерны)
  */
 export function filterMessages(
   orderedIds: number[],
@@ -117,17 +150,20 @@ export function filterMessages(
   criteria: FilterCriteria,
   onProgress?: (current: number, total: number) => void,
   options?: { maxHits?: number },
-): FilterHit[] {
+): { hits: FilterHit[]; truncated: boolean } {
   if (!hasActiveFilter(criteria)) {
-    return [];
+    return { hits: [], truncated: false };
   }
 
   const regexes = compilePatterns(criteria.keywordPatterns);
-  const needAuthorKeyword = hasAuthorOrKeywordFilter(criteria);
+  const needAuthor = hasAuthorFilter(criteria);
+  const needKeyword = hasKeywordFilter(criteria);
   const hits: FilterHit[] = [];
   const total = orderedIds.length;
   const batch = Math.max(1000, Math.floor(total / 100) || 1000);
   const maxHits = options?.maxHits ?? Number.POSITIVE_INFINITY;
+  // Collect one extra hit to distinguish "exactly maxHits" from "truncated".
+  const collectLimit = Number.isFinite(maxHits) ? maxHits + 1 : Number.POSITIVE_INFINITY;
 
   for (let i = 0; i < total; i++) {
     const id = orderedIds[i];
@@ -139,23 +175,23 @@ export function filterMessages(
       continue;
     }
 
-    if (!matchesMonth(message, criteria.months)) {
+    if (!matchesDateRange(message, criteria.dateFrom, criteria.dateTo)) {
       if (onProgress && (i % batch === 0 || i === total - 1)) {
         onProgress(i + 1, total);
       }
       continue;
     }
 
-    const authorOk = matchesAuthor(message, criteria);
-    const keywordOk = matchesKeywords(message, regexes);
-    const pass = needAuthorKeyword ? authorOk || keywordOk : true;
+    const authorOk = !needAuthor || matchesAuthor(message, criteria);
+    const keywordOk = !needKeyword || matchesKeywords(message, regexes);
+    const pass = authorOk && keywordOk;
 
     if (pass) {
       hits.push({
         matchedId: message.id,
         chain: buildReplyChain(message.id, byId),
       });
-      if (hits.length >= maxHits) {
+      if (hits.length >= collectLimit) {
         if (onProgress) onProgress(total, total);
         break;
       }
@@ -166,5 +202,9 @@ export function filterMessages(
     }
   }
 
-  return hits;
+  const truncated = Number.isFinite(maxHits) && hits.length > maxHits;
+  return {
+    hits: truncated ? hits.slice(0, maxHits) : hits,
+    truncated,
+  };
 }

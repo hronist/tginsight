@@ -18,7 +18,10 @@ export function DebugStrip() {
 
   if (process.env.NODE_ENV !== "development") return null;
 
-  const months = criteria.months.join(", ") || "—";
+  const range =
+    criteria.dateFrom || criteria.dateTo
+      ? `${criteria.dateFrom ?? "…"}…${criteria.dateTo ?? "…"}`
+      : "—";
   const keywords = criteria.keywordPatterns.filter(Boolean).length;
 
   return (
@@ -29,7 +32,7 @@ export function DebugStrip() {
       <span>filter #{filterSeq}</span>
       <span>hits {hitCount}{truncated ? `/${MAX_UI_HITS}+` : ""}</span>
       <span>cards {hitCount} (chains {chainMessageCount})</span>
-      <span>months [{months}]</span>
+      <span>range [{range}]</span>
       <span>kw {keywords}</span>
       <span>state {isBusy ? "busy" : "idle"}</span>
       <span>meta {meta ? meta.messageCount.toLocaleString() : "—"}</span>

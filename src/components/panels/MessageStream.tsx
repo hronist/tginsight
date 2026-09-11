@@ -5,11 +5,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
   ChevronUp,
-  Clock3,
   Filter,
   Hash,
   MessageCircle,
-  MoreHorizontal,
   Search,
 } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
@@ -20,7 +18,6 @@ import type { NormalizedMessage } from "@/types/telegram";
 import type { FilterHit } from "@/lib/telegram/filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -50,7 +47,9 @@ function highlightText(text: string, patterns: string[]) {
     const lowerPatterns = patterns.map((p) => p.toLowerCase());
     return parts.map((part, i) =>
       lowerPatterns.includes(part.toLowerCase()) ? (
-        <mark key={i}>{part}</mark>
+        <mark key={i} className="rounded-sm bg-primary/20 px-0.5 text-foreground">
+          {part}
+        </mark>
       ) : (
         part
       ),
@@ -73,48 +72,58 @@ function MessageCard({
   const tone = toneFromSeed(message.fromId ?? name);
 
   return (
-    <Card
-      size="sm"
+    <article
       className={cn(
-        "transition-colors",
+        "rounded-xl bg-card px-3.5 py-3 ring-1 transition-colors",
         matched
-          ? "ring-primary/30 hover:ring-primary/50"
-          : "opacity-60 ring-border/50",
+          ? "ring-border/70 hover:ring-primary/35"
+          : "bg-muted/40 opacity-75 ring-border/40",
       )}
     >
-      <CardHeader className="flex-row items-start gap-2 space-y-0 pb-2">
-        <UserAvatar name={name} tone={tone} size="sm" />
+      <header className="flex items-center gap-2.5">
+        <UserAvatar name={name} tone={tone} size="sm" className="shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-xs font-semibold">{name}</span>
-            {message.fromId && (
-              <span className="text-[10px] text-muted-foreground">{message.fromId}</span>
-            )}
-          </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Clock3 className="size-3" />
-            {formatTime(message.date)}
+          <div className="flex items-baseline gap-2">
+            <span className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+              {name}
+            </span>
+            <time
+              dateTime={message.date}
+              className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
+            >
+              {formatTime(message.date)}
+            </time>
           </div>
         </div>
-        <Button variant="ghost" size="icon-xs" aria-label="Дополнительно">
-          <MoreHorizontal className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="text-xs leading-relaxed text-foreground/90">
+      </header>
+
+      <p className="mt-2.5 text-[13px] leading-6 break-words whitespace-pre-wrap text-foreground/90">
         {highlightText(message.text, highlightPatterns)}
-      </CardContent>
-      <CardFooter className="gap-2 border-t-0 pt-0">
-        <Badge variant="secondary" className="gap-1 text-[9px]">
-          <Hash className="size-2.5" />
+      </p>
+
+      <footer className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] tabular-nums text-muted-foreground">
+        <span className="inline-flex items-center gap-0.5">
+          <Hash className="size-2.5 opacity-70" />
           {message.id}
-        </Badge>
+        </span>
         {message.month && (
-          <Badge variant="outline" className="text-[9px]">
-            {message.month}
-          </Badge>
+          <>
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+            <span>{message.month}</span>
+          </>
         )}
-      </CardFooter>
-    </Card>
+        {message.fromId && (
+          <>
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+            <span className="truncate">{message.fromId}</span>
+          </>
+        )}
+      </footer>
+    </article>
   );
 }
 
@@ -141,14 +150,15 @@ function HitRow({
 
   return (
     <div
-      className={cn("space-y-2", focused && "rounded-lg ring-2 ring-primary/25")}
+      className={cn("space-y-1.5", focused && "rounded-xl ring-2 ring-primary/20")}
       onClick={onFocus}
     >
       {hasContext && (
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="xs"
+          className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand();
@@ -164,7 +174,9 @@ function HitRow({
         <div
           key={msg.id}
           className={cn(
-            msg.id !== hit.matchedId && expanded && "border-l-2 border-border pl-3",
+            msg.id !== hit.matchedId &&
+              expanded &&
+              "ml-2 border-l-2 border-border/70 pl-3",
           )}
         >
           <MessageCard
@@ -283,9 +295,6 @@ export function MessageStream() {
                 {criteria.keywordPatterns.length}
               </Badge>
             )}
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Ещё">
-            <MoreHorizontal className="size-4" />
           </Button>
         </div>
       </div>

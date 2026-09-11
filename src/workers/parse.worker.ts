@@ -82,7 +82,7 @@ function runFilter(criteria: ParseWorkerRequest & { type: "filter" }) {
 
   const maxHits = criteria.maxHits ?? MAX_FILTER_HITS;
 
-  const hits = filterMessages(
+  const { hits, truncated } = filterMessages(
     index.orderedIds,
     index.byId,
     criteria.criteria,
@@ -102,7 +102,7 @@ function runFilter(criteria: ParseWorkerRequest & { type: "filter" }) {
     type: "filtered",
     filterSeq: criteria.filterSeq,
     hitCount: hits.length,
-    truncated: hits.length >= maxHits,
+    truncated,
     maxHits,
     chainMessageCount: countChainMessages(hits),
     hits,

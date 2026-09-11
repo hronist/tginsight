@@ -55,7 +55,8 @@ const emptyCriteria: FilterCriteria = {
   authorNames: [],
   authorHandles: [],
   keywordPatterns: [],
-  months: [],
+  dateFrom: null,
+  dateTo: null,
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -120,7 +121,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           stage: "filter",
           current: 0,
           total: parsed.messageCount,
-          label: `Последний месяц (${initial.months[0]})…`,
+          label:
+            initial.dateFrom && initial.dateTo
+              ? `Период ${initial.dateFrom} — ${initial.dateTo}…`
+              : "Фильтрация…",
         });
         const seq = client.filter(initial, MAX_UI_HITS);
         latestFilterSeqRef.current = seq;
