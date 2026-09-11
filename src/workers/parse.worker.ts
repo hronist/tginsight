@@ -4,6 +4,7 @@ import { buildParseIndex, isIndexable } from "@/lib/telegram/normalize";
 import { filterMessages } from "@/lib/telegram/filter";
 import { countChainMessages } from "@/lib/telegram/render-stats";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
+import { messageInMonthRange } from "@/lib/rag/corpus-scope";
 import type { ParseIndex } from "@/lib/telegram/normalize";
 import type { TGExport } from "@/types/telegram";
 import type {
@@ -117,13 +118,21 @@ function exportRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus" }) {
     return;
   }
 
+  const monthFrom = req.monthFrom ?? null;
+  const monthTo = req.monthTo ?? null;
   const messages: NormalizedMessage[] = [];
   let i = Math.max(0, req.offset);
   const limit = Math.max(1, req.limit);
   while (i < index.orderedIds.length && messages.length < limit) {
     const m = index.byId.get(index.orderedIds[i]!);
     i += 1;
-    if (m && isIndexable(m)) messages.push(m);
+    if (
+      m &&
+      isIndexable(m) &&
+      messageInMonthRange(m.month, monthFrom, monthTo)
+    ) {
+      messages.push(m);
+    }
   }
 
   post({
@@ -132,6 +141,33 @@ function exportRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus" }) {
     messages,
     nextOffset: i,
     done: i >= index.orderedIds.length,
+  });
+}
+
+function countRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus-count" }) {
+  if (!index) {
+    post({ type: "error", message: "No export loaded. Parse a file first." });
+    return;
+  }
+
+  const monthFrom = req.monthFrom ?? null;
+  const monthTo = req.monthTo ?? null;
+  let total = 0;
+  for (const id of index.orderedIds) {
+    const m = index.byId.get(id);
+    if (
+      m &&
+      isIndexable(m) &&
+      messageInMonthRange(m.month, monthFrom, monthTo)
+    ) {
+      total += 1;
+    }
+  }
+
+  post({
+    type: "rag-corpus-count",
+    requestId: req.requestId,
+    total,
   });
 }
 
@@ -147,6 +183,9 @@ self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
         break;
       case "rag-corpus":
         exportRagCorpus(msg);
+        break;
+      case "rag-corpus-count":
+        countRagCorpus(msg);
         break;
       case "reset":
         index = null;

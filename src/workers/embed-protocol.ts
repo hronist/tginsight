@@ -1,5 +1,7 @@
+import type { EmbedModelKey } from "@/lib/rag/embed-models";
+
 export type EmbedWorkerRequest =
-  | { type: "load-model" }
+  | { type: "load-model"; modelKey: EmbedModelKey }
   | {
       type: "embed-batch";
       items: { id: string; text: string }[];

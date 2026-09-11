@@ -26,11 +26,17 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import {
+  estimateCorpusFromMonthCounts,
+  monthsFromCriteria,
+} from "@/lib/rag/corpus-scope";
+import { getEmbedModel } from "@/lib/rag/embed-models";
+import { loadAiSettings } from "@/lib/settings/storage";
 
 const TOPIC_COLORS = ["bg-orange-400", "bg-primary", "bg-teal-500"] as const;
 
 export function IntelligencePanel() {
-  const { meta, authors, hitCount } = useChat();
+  const { meta, authors, hitCount, criteria, months, monthCounts } = useChat();
   const {
     indexCount,
     indexing,
@@ -40,13 +46,41 @@ export function IntelligencePanel() {
     history,
     streamingAnswer,
     modelBanner,
+    modelBannerMb,
     dismissModelBanner,
     buildIndex,
     ask,
   } = useRag();
 
   const [prompt, setPrompt] = useState("");
+  const [entireChat, setEntireChat] = useState(false);
   const indexReady = indexCount > 0;
+
+  const embedLabel = getEmbedModel(loadAiSettings().embedModel).label;
+
+  const corpusEstimate = useMemo(() => {
+    if (!meta) return 0;
+    if (entireChat) {
+      return estimateCorpusFromMonthCounts(monthCounts, null, null);
+    }
+    const scope = monthsFromCriteria(criteria.dateFrom, criteria.dateTo);
+    if (!scope.monthFrom && !scope.monthTo) {
+      const last = months[months.length - 1] ?? null;
+      return estimateCorpusFromMonthCounts(monthCounts, last, last);
+    }
+    return estimateCorpusFromMonthCounts(
+      monthCounts,
+      scope.monthFrom,
+      scope.monthTo,
+    );
+  }, [
+    meta,
+    entireChat,
+    monthCounts,
+    criteria.dateFrom,
+    criteria.dateTo,
+    months,
+  ]);
 
   const topAuthors = useMemo(() => authors.slice(0, 3), [authors]);
   const totalAuthorMsgs = useMemo(
@@ -155,13 +189,36 @@ export function IntelligencePanel() {
             <CardContent className="space-y-2">
               {meta && !indexReady && !indexing && (
                 <p className="rounded-md border-l-2 border-muted-foreground/40 bg-muted/40 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                  RAG ищет по всему загруженному чату, не по фильтру слева.
-                  Один раз нажмите «Собрать RAG-индекс», потом можно спрашивать.
+                  Индекс строится по месяцам периода фильтра слева, не по всему чату
+                  (если не включён «Весь чат»). Один раз соберите индекс, потом
+                  можно спрашивать.
                 </p>
+              )}
+              {meta && (
+                <p className="text-[10px] text-muted-foreground">
+                  Модель: {embedLabel}
+                </p>
+              )}
+              {meta && !indexing && (
+                <p className="text-[10px] text-muted-foreground tabular-nums">
+                  ≈ {corpusEstimate.toLocaleString()} сообщений в индексе
+                </p>
+              )}
+              {meta && (
+                <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-primary"
+                    checked={entireChat}
+                    disabled={indexing || asking}
+                    onChange={(e) => setEntireChat(e.target.checked)}
+                  />
+                  Весь чат
+                </label>
               )}
               {modelBanner && (
                 <p className="rounded-md border-l-2 border-primary bg-accent/60 px-2 py-1.5 text-[10px] leading-relaxed">
-                  Загрузка модели эмбеддингов (~23 MB).
+                  Загрузка модели эмбеддингов (~{modelBannerMb} MB).
                   <Button variant="link" className="h-auto p-0 text-[10px]" onClick={dismissModelBanner}>
                     Скрыть
                   </Button>
@@ -187,7 +244,7 @@ export function IntelligencePanel() {
                 className="w-full"
                 variant="secondary"
                 disabled={!meta || indexing || asking}
-                onClick={() => void buildIndex()}
+                onClick={() => void buildIndex({ entireChat })}
               >
                 {indexing
                   ? "Индексация…"

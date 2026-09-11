@@ -1,3 +1,8 @@
+import {
+  DEFAULT_EMBED_MODEL,
+  type EmbedModelKey,
+} from "@/lib/rag/embed-models";
+
 export type AiMode = "openrouter" | "proxy";
 
 export type AiProvider = "openai" | "anthropic" | "deepseek" | "openrouter";
@@ -7,6 +12,7 @@ export type AiSettings = {
   provider: AiProvider;
   apiKey: string;
   model: string;
+  embedModel: EmbedModelKey;
   systemPrompt: string;
   maxContextTokens: number;
 };
@@ -16,6 +22,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "openrouter",
   apiKey: "",
   model: "openai/gpt-4o-mini",
+  embedModel: DEFAULT_EMBED_MODEL,
   systemPrompt:
     "You are an assistant answering questions about a Telegram chat. Use only the provided context snippets. If the context is insufficient, say so.",
   maxContextTokens: 8000,

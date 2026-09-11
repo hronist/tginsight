@@ -5,6 +5,11 @@ import { Settings2, X } from "lucide-react";
 import type { AiSettings } from "@/types/settings";
 import { DEFAULT_AI_SETTINGS } from "@/types/settings";
 import { loadAiSettings, saveAiSettings } from "@/lib/settings/storage";
+import {
+  getEmbedModel,
+  listEmbedModels,
+  type EmbedModelKey,
+} from "@/lib/rag/embed-models";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -157,13 +162,35 @@ export function SettingsMenu() {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="settings-model" className="text-xs">
-                      Модель
+                      LLM модель
                     </Label>
                     <Input
                       id="settings-model"
                       value={settings.model}
                       onChange={(e) => update({ model: e.target.value })}
                     />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="settings-embed-model" className="text-xs">
+                      Модель эмбеддингов
+                    </Label>
+                    <select
+                      id="settings-embed-model"
+                      className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                      value={getEmbedModel(settings.embedModel).key}
+                      onChange={(e) =>
+                        update({
+                          embedModel: e.target.value as EmbedModelKey,
+                        })
+                      }
+                    >
+                      {listEmbedModels().map((m) => (
+                        <option key={m.key} value={m.key}>
+                          {m.label} (~{m.approxDownloadMb} MB)
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="space-y-1.5">

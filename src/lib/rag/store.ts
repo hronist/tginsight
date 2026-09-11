@@ -30,6 +30,38 @@ export async function getIndexedAt(): Promise<number | null> {
   return Number.isFinite(n) ? n : null;
 }
 
+export async function getMetaEmbedModel(): Promise<string | null> {
+  const row = await db.meta.get("embedModel");
+  return row?.value ?? null;
+}
+
+export async function setMetaEmbedModel(key: string): Promise<void> {
+  await db.meta.put({ key: "embedModel", value: key });
+}
+
+/** Empty string sides mean "all" (entire chat / unbounded). */
+export async function getMetaRagMonthRange(): Promise<{
+  monthFrom: string;
+  monthTo: string;
+}> {
+  const from = await db.meta.get("ragMonthFrom");
+  const to = await db.meta.get("ragMonthTo");
+  return {
+    monthFrom: from?.value ?? "",
+    monthTo: to?.value ?? "",
+  };
+}
+
+export async function setMetaRagMonthRange(
+  monthFrom: string,
+  monthTo: string,
+): Promise<void> {
+  await db.transaction("rw", db.meta, async () => {
+    await db.meta.put({ key: "ragMonthFrom", value: monthFrom });
+    await db.meta.put({ key: "ragMonthTo", value: monthTo });
+  });
+}
+
 export async function searchChunks(
   queryEmbedding: number[],
   topK: number,

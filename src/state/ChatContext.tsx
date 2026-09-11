@@ -17,7 +17,7 @@ import type { FilterCriteria, FilterHit } from "@/lib/telegram/filter";
 import { buildDefaultCriteria, hasActiveFilter } from "@/lib/telegram/filter";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import type { ParseWorkerProgress } from "@/workers/parse-protocol";
-import type { RagCorpusBatch } from "@/lib/workers/parse-client";
+import type { RagCorpusBatch, RagCorpusScope } from "@/lib/workers/parse-client";
 
 export type ChatMeta = {
   chatName: string;
@@ -49,8 +49,13 @@ type ChatContextValue = {
   loadFile: (file: File) => void;
   clearFile: () => void;
   applyFilters: (override?: FilterCriteria) => void;
-  /** Full-chat indexable corpus batches (not UI hits). Offset into orderedIds. */
-  fetchRagCorpus: (offset: number, limit: number) => Promise<RagCorpusBatch>;
+  /** Indexable corpus batches. Offset into orderedIds. Optional month scope. */
+  fetchRagCorpus: (
+    offset: number,
+    limit: number,
+    scope?: RagCorpusScope,
+  ) => Promise<RagCorpusBatch>;
+  countRagCorpus: (scope?: RagCorpusScope) => Promise<number>;
 };
 
 const emptyCriteria: FilterCriteria = {
@@ -246,12 +251,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [meta]);
 
   const fetchRagCorpus = useCallback(
-    async (offset: number, limit: number): Promise<RagCorpusBatch> => {
+    async (
+      offset: number,
+      limit: number,
+      scope?: RagCorpusScope,
+    ): Promise<RagCorpusBatch> => {
       const client = clientRef.current;
       if (!client) {
         throw new Error("Parse worker is not ready");
       }
-      return client.fetchRagCorpus(offset, limit);
+      return client.fetchRagCorpus(offset, limit, scope);
+    },
+    [],
+  );
+
+  const countRagCorpus = useCallback(
+    async (scope?: RagCorpusScope): Promise<number> => {
+      const client = clientRef.current;
+      if (!client) {
+        throw new Error("Parse worker is not ready");
+      }
+      return client.countRagCorpus(scope);
     },
     [],
   );
@@ -277,6 +297,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       clearFile,
       applyFilters,
       fetchRagCorpus,
+      countRagCorpus,
     }),
     [
       meta,
@@ -298,6 +319,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       clearFile,
       applyFilters,
       fetchRagCorpus,
+      countRagCorpus,
     ],
   );
 

@@ -16,6 +16,11 @@ export type RagCorpusBatch = {
   done: boolean;
 };
 
+export type RagCorpusScope = {
+  monthFrom?: string | null;
+  monthTo?: string | null;
+};
+
 export type ParseClientHandlers = {
   onProgress?: (progress: ParseWorkerProgress) => void;
   onParsed?: (parsed: ParseWorkerParsed) => void;
@@ -30,6 +35,12 @@ export type ParseClientHandlers = {
   onReset?: () => void;
 };
 
+function newRequestId(prefix: string) {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export class ParseWorkerClient {
   private worker: Worker | null = null;
   private handlers: ParseClientHandlers;
@@ -38,6 +49,13 @@ export class ParseWorkerClient {
     string,
     {
       resolve: (batch: RagCorpusBatch) => void;
+      reject: (err: Error) => void;
+    }
+  >();
+  private pendingCorpusCount = new Map<
+    string,
+    {
+      resolve: (total: number) => void;
       reject: (err: Error) => void;
     }
   >();
@@ -50,12 +68,16 @@ export class ParseWorkerClient {
     this.handlers = handlers;
   }
 
-  private rejectPendingCorpus(message: string) {
+  private rejectPending(message: string) {
     const err = new Error(message);
     for (const pending of this.pendingCorpus.values()) {
       pending.reject(err);
     }
     this.pendingCorpus.clear();
+    for (const pending of this.pendingCorpusCount.values()) {
+      pending.reject(err);
+    }
+    this.pendingCorpusCount.clear();
   }
 
   private ensureWorker() {
@@ -82,19 +104,27 @@ export class ParseWorkerClient {
         case "rag-corpus-batch":
           this.resolveCorpusBatch(data);
           break;
+        case "rag-corpus-count": {
+          const pending = this.pendingCorpusCount.get(data.requestId);
+          if (pending) {
+            this.pendingCorpusCount.delete(data.requestId);
+            pending.resolve(data.total);
+          }
+          break;
+        }
         case "error":
-          this.rejectPendingCorpus(data.message);
+          this.rejectPending(data.message);
           this.handlers.onError?.(data.message);
           break;
         case "reset-done":
-          this.rejectPendingCorpus("Parse worker reset");
+          this.rejectPending("Parse worker reset");
           this.handlers.onReset?.();
           break;
       }
     };
     this.worker.onerror = (event) => {
       const message = event.message || "Parse worker crashed";
-      this.rejectPendingCorpus(message);
+      this.rejectPending(message);
       this.handlers.onError?.(message);
     };
     return this.worker;
@@ -134,12 +164,13 @@ export class ParseWorkerClient {
     return filterSeq;
   }
 
-  /** Batched full-chat indexable corpus. Offset is into orderedIds. */
-  fetchRagCorpus(offset: number, limit: number): Promise<RagCorpusBatch> {
-    const requestId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `rag-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  /** Batched indexable corpus. Offset is into orderedIds. */
+  fetchRagCorpus(
+    offset: number,
+    limit: number,
+    scope: RagCorpusScope = {},
+  ): Promise<RagCorpusBatch> {
+    const requestId = newRequestId("rag");
     return new Promise((resolve, reject) => {
       this.pendingCorpus.set(requestId, { resolve, reject });
       this.ensureWorker().postMessage({
@@ -147,6 +178,21 @@ export class ParseWorkerClient {
         offset,
         limit,
         requestId,
+        monthFrom: scope.monthFrom ?? null,
+        monthTo: scope.monthTo ?? null,
+      } satisfies ParseWorkerRequest);
+    });
+  }
+
+  countRagCorpus(scope: RagCorpusScope = {}): Promise<number> {
+    const requestId = newRequestId("rag-count");
+    return new Promise((resolve, reject) => {
+      this.pendingCorpusCount.set(requestId, { resolve, reject });
+      this.ensureWorker().postMessage({
+        type: "rag-corpus-count",
+        requestId,
+        monthFrom: scope.monthFrom ?? null,
+        monthTo: scope.monthTo ?? null,
       } satisfies ParseWorkerRequest);
     });
   }
@@ -160,7 +206,7 @@ export class ParseWorkerClient {
   }
 
   terminate() {
-    this.rejectPendingCorpus("Parse worker terminated");
+    this.rejectPending("Parse worker terminated");
     this.worker?.terminate();
     this.worker = null;
   }

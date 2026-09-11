@@ -1,3 +1,4 @@
+import type { EmbedModelKey } from "@/lib/rag/embed-models";
 import type {
   EmbedWorkerProgress,
   EmbedWorkerRequest,
@@ -20,6 +21,7 @@ export class EmbedWorkerClient {
   private handlers: EmbedClientHandlers;
   private pendingQueries = new Map<string, PendingQuery>();
   private modelReady = false;
+  private loadedModelKey: EmbedModelKey | null = null;
   private modelPromise: Promise<void> | null = null;
 
   constructor(handlers: EmbedClientHandlers = {}) {
@@ -79,10 +81,19 @@ export class EmbedWorkerClient {
     | null = null;
   private batchRejecter: ((error: Error) => void) | null = null;
 
-  async loadModel(): Promise<void> {
-    if (this.modelReady) return;
-    if (this.modelPromise) return this.modelPromise;
+  async loadModel(modelKey: EmbedModelKey): Promise<void> {
+    if (this.modelReady && this.loadedModelKey === modelKey) return;
+    if (this.modelPromise && this.loadedModelKey === modelKey) {
+      return this.modelPromise;
+    }
+
+    if (this.loadedModelKey !== modelKey) {
+      this.modelReady = false;
+      this.modelPromise = null;
+    }
+
     const worker = this.ensureWorker();
+    this.loadedModelKey = modelKey;
     this.modelPromise = new Promise<void>((resolve, reject) => {
       const prevReady = this.handlers.onModelReady;
       const prevError = this.handlers.onError;
@@ -97,9 +108,13 @@ export class EmbedWorkerClient {
         this.handlers.onModelReady = prevReady;
         this.handlers.onError = prevError;
         this.modelPromise = null;
+        this.modelReady = false;
         reject(new Error(message));
       };
-      worker.postMessage({ type: "load-model" } satisfies EmbedWorkerRequest);
+      worker.postMessage({
+        type: "load-model",
+        modelKey,
+      } satisfies EmbedWorkerRequest);
     });
     return this.modelPromise;
   }
@@ -150,6 +165,7 @@ export class EmbedWorkerClient {
     this.worker?.terminate();
     this.worker = null;
     this.modelReady = false;
+    this.loadedModelKey = null;
     this.modelPromise = null;
     this.pendingQueries.clear();
   }

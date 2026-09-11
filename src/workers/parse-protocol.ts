@@ -10,6 +10,14 @@ export type ParseWorkerRequest =
       offset: number;
       limit: number;
       requestId: string;
+      monthFrom?: string | null;
+      monthTo?: string | null;
+    }
+  | {
+      type: "rag-corpus-count";
+      requestId: string;
+      monthFrom?: string | null;
+      monthTo?: string | null;
     }
   | { type: "reset" };
 
@@ -51,6 +59,12 @@ export type ParseWorkerRagCorpusBatch = {
   done: boolean;
 };
 
+export type ParseWorkerRagCorpusCount = {
+  type: "rag-corpus-count";
+  requestId: string;
+  total: number;
+};
+
 export type ParseWorkerError = {
   type: "error";
   message: string;
@@ -61,6 +75,7 @@ export type ParseWorkerResponse =
   | ParseWorkerParsed
   | ParseWorkerFiltered
   | ParseWorkerRagCorpusBatch
+  | ParseWorkerRagCorpusCount
   | ParseWorkerError
   | { type: "reset-done" };
 

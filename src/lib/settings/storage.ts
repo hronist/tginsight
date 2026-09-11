@@ -1,3 +1,4 @@
+import { getEmbedModel } from "@/lib/rag/embed-models";
 import type { AiSettings } from "@/types/settings";
 import { AI_SETTINGS_STORAGE_KEY, DEFAULT_AI_SETTINGS } from "@/types/settings";
 
@@ -6,7 +7,10 @@ export function loadAiSettings(): AiSettings {
   try {
     const raw = localStorage.getItem(AI_SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_AI_SETTINGS;
-    return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw) as Partial<AiSettings>;
+    const merged = { ...DEFAULT_AI_SETTINGS, ...parsed };
+    merged.embedModel = getEmbedModel(parsed.embedModel).key;
+    return merged;
   } catch {
     return DEFAULT_AI_SETTINGS;
   }

@@ -13,6 +13,13 @@ import {
 import { EmbedWorkerClient } from "@/lib/workers/embed-client";
 import { messagesToChunkDrafts } from "@/lib/rag/chunking";
 import {
+  getEmbedModel,
+  type EmbedModelKey,
+} from "@/lib/rag/embed-models";
+import {
+  monthsFromCriteria,
+} from "@/lib/rag/corpus-scope";
+import {
   indexChunkCount,
   isIndexing,
   resolveIndexStatus,
@@ -23,9 +30,12 @@ import {
   draftsToRows,
   getIndexCount,
   getIndexedAt,
+  getMetaEmbedModel,
   listQueryHistory,
   replaceChunkIndex,
   searchChunks,
+  setMetaEmbedModel,
+  setMetaRagMonthRange,
 } from "@/lib/rag/store";
 import { estimateTokens, trimChunksToTokenBudget } from "@/lib/rag/similarity";
 import { buildRagMessages, streamChatCompletion } from "@/lib/llm/chat";
@@ -33,6 +43,7 @@ import { loadAiSettings } from "@/lib/settings/storage";
 import { useChat } from "@/state/ChatContext";
 import type { QueryHistoryRow } from "@/lib/db/schema";
 import type { ChunkDraft } from "@/lib/rag/chunking";
+import type { RagCorpusScope } from "@/lib/workers/parse-client";
 
 const EMBED_BATCH = 16;
 const CORPUS_BATCH = 300;
@@ -44,11 +55,29 @@ function yieldToUi(): Promise<void> {
   });
 }
 
+function resolveBuildScope(args: {
+  entireChat: boolean;
+  dateFrom: string | null;
+  dateTo: string | null;
+  months: string[];
+}): RagCorpusScope {
+  if (args.entireChat) {
+    return { monthFrom: null, monthTo: null };
+  }
+  const fromCriteria = monthsFromCriteria(args.dateFrom, args.dateTo);
+  if (!fromCriteria.monthFrom && !fromCriteria.monthTo) {
+    const last = args.months[args.months.length - 1] ?? null;
+    return { monthFrom: last, monthTo: last };
+  }
+  return fromCriteria;
+}
+
 type RagContextValue = {
   status: RagIndexStatus;
   indexCount: number;
   modelReady: boolean;
   modelBanner: boolean;
+  modelBannerMb: number;
   dismissModelBanner: () => void;
   indexing: boolean;
   asking: boolean;
@@ -56,7 +85,7 @@ type RagContextValue = {
   error: string | null;
   history: QueryHistoryRow[];
   streamingAnswer: string;
-  buildIndex: () => Promise<void>;
+  buildIndex: (options?: { entireChat?: boolean }) => Promise<void>;
   ask: (prompt: string) => Promise<void>;
   refreshHistory: () => Promise<void>;
 };
@@ -64,11 +93,14 @@ type RagContextValue = {
 const RagContext = createContext<RagContextValue | null>(null);
 
 export function RagProvider({ children }: { children: ReactNode }) {
-  const { meta, fetchRagCorpus } = useChat();
+  const { meta, criteria, months, fetchRagCorpus, countRagCorpus } = useChat();
   const clientRef = useRef<EmbedWorkerClient | null>(null);
   const [status, setStatus] = useState<RagIndexStatus>({ kind: "absent" });
   const [modelReady, setModelReady] = useState(false);
   const [modelBanner, setModelBanner] = useState(false);
+  const [modelBannerMb, setModelBannerMb] = useState(
+    () => getEmbedModel(loadAiSettings().embedModel).approxDownloadMb,
+  );
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<QueryHistoryRow[]>([]);
@@ -138,92 +170,119 @@ export function RagProvider({ children }: { children: ReactNode }) {
 
   const dismissModelBanner = useCallback(() => setModelBanner(false), []);
 
-  const buildIndex = useCallback(async () => {
-    if (!meta) {
-      setError("Сначала загрузите экспорт чата.");
-      return;
-    }
-    const client = clientRef.current;
-    if (!client) return;
+  const buildIndex = useCallback(
+    async (options?: { entireChat?: boolean }) => {
+      if (!meta) {
+        setError("Сначала загрузите экспорт чата.");
+        return;
+      }
+      const client = clientRef.current;
+      if (!client) return;
 
-    const total = meta.indexableCount;
-    setError(null);
-    setModelBanner(true);
-    setStatus({
-      kind: "building",
-      current: 0,
-      total,
-      label: `0 / ${total.toLocaleString()} · 0 чанков`,
-    });
+      const settings = loadAiSettings();
+      const modelKey = settings.embedModel as EmbedModelKey;
+      const model = getEmbedModel(modelKey);
+      const scope = resolveBuildScope({
+        entireChat: Boolean(options?.entireChat),
+        dateFrom: criteria.dateFrom,
+        dateTo: criteria.dateTo,
+        months,
+      });
 
-    try {
-      await client.loadModel();
-      setModelBanner(false);
+      setError(null);
+      setModelBannerMb(model.approxDownloadMb);
+      setModelBanner(true);
+      setStatus({
+        kind: "building",
+        current: 0,
+        total: 1,
+        label: "Подсчёт корпуса…",
+      });
 
-      const allDrafts: ChunkDraft[] = [];
-      const allVectors: { id: string; embedding: number[] }[] = [];
-      let offset = 0;
-      let processed = 0;
-      let embedBatchIndex = 0;
-      let done = false;
-
-      while (!done) {
-        const batch = await fetchRagCorpus(offset, CORPUS_BATCH);
-        const drafts = messagesToChunkDrafts(batch.messages);
-        processed += batch.messages.length;
-        offset = batch.nextOffset;
-        done = batch.done;
-
+      try {
+        const total = await countRagCorpus(scope);
         setStatus({
           kind: "building",
-          current: processed,
+          current: 0,
           total,
-          label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
+          label: `0 / ${total.toLocaleString()} · 0 чанков`,
         });
 
-        for (let i = 0; i < drafts.length; i += EMBED_BATCH) {
-          const slice = drafts.slice(i, i + EMBED_BATCH);
-          const vectors = await client.embedBatch(
-            slice.map((d) => ({ id: d.id, text: d.text })),
-            embedBatchIndex,
-            embedBatchIndex + 1,
-          );
-          embedBatchIndex += 1;
-          allDrafts.push(...slice);
-          allVectors.push(...vectors);
+        await client.loadModel(modelKey);
+        setModelBanner(false);
+
+        const allDrafts: ChunkDraft[] = [];
+        const allVectors: { id: string; embedding: number[] }[] = [];
+        let offset = 0;
+        let processed = 0;
+        let embedBatchIndex = 0;
+        let done = false;
+
+        while (!done) {
+          const batch = await fetchRagCorpus(offset, CORPUS_BATCH, scope);
+          const drafts = messagesToChunkDrafts(batch.messages);
+          processed += batch.messages.length;
+          offset = batch.nextOffset;
+          done = batch.done;
+
           setStatus({
             kind: "building",
             current: processed,
             total,
             label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
           });
-          await yieldToUi();
+
+          for (let i = 0; i < drafts.length; i += EMBED_BATCH) {
+            const slice = drafts.slice(i, i + EMBED_BATCH);
+            const vectors = await client.embedBatch(
+              slice.map((d) => ({ id: d.id, text: d.text })),
+              embedBatchIndex,
+              embedBatchIndex + 1,
+            );
+            embedBatchIndex += 1;
+            allDrafts.push(...slice);
+            allVectors.push(...vectors);
+            setStatus({
+              kind: "building",
+              current: processed,
+              total,
+              label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
+            });
+            await yieldToUi();
+          }
         }
-      }
 
-      if (allDrafts.length === 0) {
+        if (allDrafts.length === 0) {
+          setStatus({
+            kind: "error",
+            message: "В выбранном периоде нет сообщений для индексации.",
+          });
+          return;
+        }
+
+        const rows = draftsToRows(allDrafts, allVectors);
+        const builtAt = Date.now();
+        await replaceChunkIndex(rows);
+        await setMetaEmbedModel(modelKey);
+        await setMetaRagMonthRange(
+          scope.monthFrom ?? "",
+          scope.monthTo ?? "",
+        );
         setStatus({
-          kind: "error",
-          message: "В чате нет сообщений для индексации.",
+          kind: "ready",
+          chatId: meta.chatId,
+          chunkCount: rows.length,
+          builtAt,
         });
-        return;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Индексация не удалась";
+        setStatus({ kind: "error", message });
+        setError(message);
       }
-
-      const rows = draftsToRows(allDrafts, allVectors);
-      const builtAt = Date.now();
-      await replaceChunkIndex(rows);
-      setStatus({
-        kind: "ready",
-        chatId: meta.chatId,
-        chunkCount: rows.length,
-        builtAt,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Индексация не удалась";
-      setStatus({ kind: "error", message });
-      setError(message);
-    }
-  }, [meta, fetchRagCorpus]);
+    },
+    [meta, criteria.dateFrom, criteria.dateTo, months, fetchRagCorpus, countRagCorpus],
+  );
 
   const ask = useCallback(
     async (prompt: string) => {
@@ -237,23 +296,32 @@ export function RagProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const settings = loadAiSettings();
+      const modelKey = settings.embedModel;
+      const storedModel = await getMetaEmbedModel();
+      if (storedModel && storedModel !== modelKey) {
+        setError("Модель сменилась — пересоберите индекс");
+        return;
+      }
+
       setError(null);
       setAsking(true);
       setStreamingAnswer("");
+      setModelBannerMb(getEmbedModel(modelKey).approxDownloadMb);
       setModelBanner(true);
       abortRef.current?.abort();
       const abort = new AbortController();
       abortRef.current = abort;
 
       try {
-        await client.loadModel();
+        await client.loadModel(modelKey);
+        setModelBanner(false);
         const queryEmbedding = await client.embedQuery(trimmed);
         const ranked = await searchChunks(queryEmbedding, TOP_K);
         if (ranked.length === 0) {
           throw new Error("В локальном индексе нет чанков.");
         }
 
-        const settings = loadAiSettings();
         const overhead =
           estimateTokens(settings.systemPrompt) + estimateTokens(trimmed) + 200;
         const trimmedChunks = trimChunksToTokenBudget(
@@ -303,6 +371,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       indexCount,
       modelReady,
       modelBanner,
+      modelBannerMb,
       dismissModelBanner,
       indexing,
       asking,
@@ -321,6 +390,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       indexCount,
       modelReady,
       modelBanner,
+      modelBannerMb,
       dismissModelBanner,
       indexing,
       asking,
