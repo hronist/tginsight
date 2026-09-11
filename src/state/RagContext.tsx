@@ -11,11 +11,18 @@ import {
   type ReactNode,
 } from "react";
 import { EmbedWorkerClient } from "@/lib/workers/embed-client";
-import { hitsToChunkDrafts } from "@/lib/rag/chunking";
+import { messagesToChunkDrafts } from "@/lib/rag/chunking";
+import {
+  indexChunkCount,
+  isIndexing,
+  resolveIndexStatus,
+  type RagIndexStatus,
+} from "@/lib/rag/index-state";
 import {
   addQueryHistory,
   draftsToRows,
   getIndexCount,
+  getIndexedAt,
   listQueryHistory,
   replaceChunkIndex,
   searchChunks,
@@ -25,19 +32,27 @@ import { buildRagMessages, streamChatCompletion } from "@/lib/llm/chat";
 import { loadAiSettings } from "@/lib/settings/storage";
 import { useChat } from "@/state/ChatContext";
 import type { QueryHistoryRow } from "@/lib/db/schema";
-import type { EmbedWorkerProgress } from "@/workers/embed-protocol";
+import type { ChunkDraft } from "@/lib/rag/chunking";
 
-const BATCH_SIZE = 16;
+const EMBED_BATCH = 16;
+const CORPUS_BATCH = 300;
 const TOP_K = 8;
 
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 type RagContextValue = {
+  status: RagIndexStatus;
   indexCount: number;
   modelReady: boolean;
   modelBanner: boolean;
   dismissModelBanner: () => void;
   indexing: boolean;
   asking: boolean;
-  progress: EmbedWorkerProgress | null;
+  progressLabel: string | null;
   error: string | null;
   history: QueryHistoryRow[];
   streamingAnswer: string;
@@ -49,35 +64,40 @@ type RagContextValue = {
 const RagContext = createContext<RagContextValue | null>(null);
 
 export function RagProvider({ children }: { children: ReactNode }) {
-  const { hits, meta } = useChat();
+  const { meta, fetchRagCorpus } = useChat();
   const clientRef = useRef<EmbedWorkerClient | null>(null);
-  const [indexCount, setIndexCount] = useState(0);
+  const [status, setStatus] = useState<RagIndexStatus>({ kind: "absent" });
   const [modelReady, setModelReady] = useState(false);
   const [modelBanner, setModelBanner] = useState(false);
-  const [indexing, setIndexing] = useState(false);
   const [asking, setAsking] = useState(false);
-  const [progress, setProgress] = useState<EmbedWorkerProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<QueryHistoryRow[]>([]);
   const [streamingAnswer, setStreamingAnswer] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
+  const effectiveStatus = resolveIndexStatus(meta?.chatId, status);
+  const indexCount = indexChunkCount(effectiveStatus);
+  const indexing = isIndexing(effectiveStatus);
+  const progressLabel =
+    effectiveStatus.kind === "building"
+      ? (effectiveStatus.label ?? null)
+      : null;
+
   useEffect(() => {
     const client = new EmbedWorkerClient({
-      onProgress: (p) => setProgress(p),
+      onProgress: () => undefined,
       onModelReady: () => {
         setModelReady(true);
-        setProgress(null);
       },
       onError: (message) => {
         setError(message);
-        setIndexing(false);
+        setStatus((prev) =>
+          prev.kind === "building" ? { kind: "error", message } : prev,
+        );
         setAsking(false);
-        setProgress(null);
       },
     });
     clientRef.current = client;
-    void getIndexCount().then(setIndexCount);
     void listQueryHistory().then(setHistory);
     return () => {
       client.terminate();
@@ -89,13 +109,27 @@ export function RagProvider({ children }: { children: ReactNode }) {
   // Reset local RAG state when export changes (ChatContext clears Dexie)
   useEffect(() => {
     if (!meta) {
-      setIndexCount(0);
+      setStatus({ kind: "absent" });
       setHistory([]);
       setStreamingAnswer("");
-    } else {
-      void getIndexCount().then(setIndexCount);
-      void listQueryHistory().then(setHistory);
+      setError(null);
+      return;
     }
+    void (async () => {
+      const count = await getIndexCount();
+      const builtAt = (await getIndexedAt()) ?? Date.now();
+      if (count > 0) {
+        setStatus({
+          kind: "ready",
+          chatId: meta.chatId,
+          chunkCount: count,
+          builtAt,
+        });
+      } else {
+        setStatus({ kind: "absent" });
+      }
+      setHistory(await listQueryHistory());
+    })();
   }, [meta?.chatId, meta]);
 
   const refreshHistory = useCallback(async () => {
@@ -105,49 +139,91 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const dismissModelBanner = useCallback(() => setModelBanner(false), []);
 
   const buildIndex = useCallback(async () => {
-    if (!hits.length) {
-      setError("No filtered messages to index. Apply filters first.");
+    if (!meta) {
+      setError("Сначала загрузите экспорт чата.");
       return;
     }
     const client = clientRef.current;
     if (!client) return;
 
+    const total = meta.indexableCount;
     setError(null);
-    setIndexing(true);
     setModelBanner(true);
+    setStatus({
+      kind: "building",
+      current: 0,
+      total,
+      label: `0 / ${total.toLocaleString()} · 0 чанков`,
+    });
+
     try {
       await client.loadModel();
-      const drafts = hitsToChunkDrafts(hits);
-      const batches: { id: string; text: string }[][] = [];
-      for (let i = 0; i < drafts.length; i += BATCH_SIZE) {
-        batches.push(
-          drafts.slice(i, i + BATCH_SIZE).map((d) => ({ id: d.id, text: d.text })),
-        );
-      }
+      setModelBanner(false);
 
+      const allDrafts: ChunkDraft[] = [];
       const allVectors: { id: string; embedding: number[] }[] = [];
-      for (let i = 0; i < batches.length; i++) {
-        const vectors = await client.embedBatch(batches[i], i, batches.length);
-        allVectors.push(...vectors);
-        setProgress({
-          type: "progress",
-          stage: "embed",
-          current: i + 1,
-          total: batches.length,
-          label: `Indexed batch ${i + 1} / ${batches.length} (${allVectors.length} chunks)`,
+      let offset = 0;
+      let processed = 0;
+      let embedBatchIndex = 0;
+      let done = false;
+
+      while (!done) {
+        const batch = await fetchRagCorpus(offset, CORPUS_BATCH);
+        const drafts = messagesToChunkDrafts(batch.messages);
+        processed += batch.messages.length;
+        offset = batch.nextOffset;
+        done = batch.done;
+
+        setStatus({
+          kind: "building",
+          current: processed,
+          total,
+          label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
         });
+
+        for (let i = 0; i < drafts.length; i += EMBED_BATCH) {
+          const slice = drafts.slice(i, i + EMBED_BATCH);
+          const vectors = await client.embedBatch(
+            slice.map((d) => ({ id: d.id, text: d.text })),
+            embedBatchIndex,
+            embedBatchIndex + 1,
+          );
+          embedBatchIndex += 1;
+          allDrafts.push(...slice);
+          allVectors.push(...vectors);
+          setStatus({
+            kind: "building",
+            current: processed,
+            total,
+            label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
+          });
+          await yieldToUi();
+        }
       }
 
-      const rows = draftsToRows(drafts, allVectors);
+      if (allDrafts.length === 0) {
+        setStatus({
+          kind: "error",
+          message: "В чате нет сообщений для индексации.",
+        });
+        return;
+      }
+
+      const rows = draftsToRows(allDrafts, allVectors);
+      const builtAt = Date.now();
       await replaceChunkIndex(rows);
-      setIndexCount(rows.length);
-      setProgress(null);
+      setStatus({
+        kind: "ready",
+        chatId: meta.chatId,
+        chunkCount: rows.length,
+        builtAt,
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Indexing failed");
-    } finally {
-      setIndexing(false);
+      const message = err instanceof Error ? err.message : "Индексация не удалась";
+      setStatus({ kind: "error", message });
+      setError(message);
     }
-  }, [hits]);
+  }, [meta, fetchRagCorpus]);
 
   const ask = useCallback(
     async (prompt: string) => {
@@ -156,9 +232,8 @@ export function RagProvider({ children }: { children: ReactNode }) {
       const client = clientRef.current;
       if (!client) return;
 
-      const count = await getIndexCount();
-      if (count === 0) {
-        setError("Build a RAG index from the current filters before asking.");
+      if (effectiveStatus.kind !== "ready" || effectiveStatus.chunkCount === 0) {
+        setError("Сначала соберите RAG-индекс");
         return;
       }
 
@@ -175,7 +250,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
         const queryEmbedding = await client.embedQuery(trimmed);
         const ranked = await searchChunks(queryEmbedding, TOP_K);
         if (ranked.length === 0) {
-          throw new Error("No chunks in the local index.");
+          throw new Error("В локальном индексе нет чанков.");
         }
 
         const settings = loadAiSettings();
@@ -214,25 +289,27 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setStreamingAnswer("");
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Ask failed");
+        setError(err instanceof Error ? err.message : "Запрос не удался");
       } finally {
         setAsking(false);
-        setProgress(null);
       }
     },
-    [refreshHistory],
+    [effectiveStatus, refreshHistory],
   );
 
   const value = useMemo<RagContextValue>(
     () => ({
+      status: effectiveStatus,
       indexCount,
       modelReady,
       modelBanner,
       dismissModelBanner,
       indexing,
       asking,
-      progress,
-      error,
+      progressLabel,
+      error:
+        error ??
+        (effectiveStatus.kind === "error" ? effectiveStatus.message : null),
       history,
       streamingAnswer,
       buildIndex,
@@ -240,13 +317,14 @@ export function RagProvider({ children }: { children: ReactNode }) {
       refreshHistory,
     }),
     [
+      effectiveStatus,
       indexCount,
       modelReady,
       modelBanner,
       dismissModelBanner,
       indexing,
       asking,
-      progress,
+      progressLabel,
       error,
       history,
       streamingAnswer,

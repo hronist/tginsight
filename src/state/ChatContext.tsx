@@ -17,6 +17,7 @@ import type { FilterCriteria, FilterHit } from "@/lib/telegram/filter";
 import { buildDefaultCriteria, hasActiveFilter } from "@/lib/telegram/filter";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import type { ParseWorkerProgress } from "@/workers/parse-protocol";
+import type { RagCorpusBatch } from "@/lib/workers/parse-client";
 
 export type ChatMeta = {
   chatName: string;
@@ -48,6 +49,8 @@ type ChatContextValue = {
   loadFile: (file: File) => void;
   clearFile: () => void;
   applyFilters: (override?: FilterCriteria) => void;
+  /** Full-chat indexable corpus batches (not UI hits). Offset into orderedIds. */
+  fetchRagCorpus: (offset: number, limit: number) => Promise<RagCorpusBatch>;
 };
 
 const emptyCriteria: FilterCriteria = {
@@ -242,6 +245,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (seq) latestFilterSeqRef.current = seq;
   }, [meta]);
 
+  const fetchRagCorpus = useCallback(
+    async (offset: number, limit: number): Promise<RagCorpusBatch> => {
+      const client = clientRef.current;
+      if (!client) {
+        throw new Error("Parse worker is not ready");
+      }
+      return client.fetchRagCorpus(offset, limit);
+    },
+    [],
+  );
+
   const value = useMemo<ChatContextValue>(
     () => ({
       meta,
@@ -262,6 +276,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       loadFile,
       clearFile,
       applyFilters,
+      fetchRagCorpus,
     }),
     [
       meta,
@@ -282,6 +297,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       loadFile,
       clearFile,
       applyFilters,
+      fetchRagCorpus,
     ],
   );
 

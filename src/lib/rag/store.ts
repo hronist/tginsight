@@ -23,6 +23,13 @@ export async function getIndexCount(): Promise<number> {
   return db.chunks.count();
 }
 
+export async function getIndexedAt(): Promise<number | null> {
+  const row = await db.meta.get("indexedAt");
+  if (!row) return null;
+  const n = Number(row.value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function searchChunks(
   queryEmbedding: number[],
   topK: number,

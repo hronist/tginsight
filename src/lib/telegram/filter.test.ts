@@ -50,17 +50,17 @@ describe("filterMessages", () => {
     expect(truncated).toBe(false);
   });
 
-  it("returns indexable messages in date range when no author/keyword", () => {
+  it("returns indexable messages newest-first in date range when no author/keyword", () => {
     const { hits, truncated } = filterMessages(orderedIds, byId, {
       ...empty,
       dateFrom: "2024-03-01",
       dateTo: "2024-04-30",
     });
-    expect(hits.map((h) => h.matchedId)).toEqual([1, 2, 3]);
+    expect(hits.map((h) => h.matchedId)).toEqual([3, 2, 1]);
     expect(truncated).toBe(false);
   });
 
-  it("respects maxHits cap and marks truncated only when more exist", () => {
+  it("respects maxHits cap with newest-first and marks truncated only when more exist", () => {
     const capped = filterMessages(
       orderedIds,
       byId,
@@ -68,7 +68,7 @@ describe("filterMessages", () => {
       undefined,
       { maxHits: 2 },
     );
-    expect(capped.hits).toHaveLength(2);
+    expect(capped.hits.map((h) => h.matchedId)).toEqual([3, 2]);
     expect(capped.truncated).toBe(true);
 
     const exact = filterMessages(
@@ -78,7 +78,7 @@ describe("filterMessages", () => {
       undefined,
       { maxHits: 3 },
     );
-    expect(exact.hits).toHaveLength(3);
+    expect(exact.hits.map((h) => h.matchedId)).toEqual([3, 2, 1]);
     expect(exact.truncated).toBe(false);
   });
 

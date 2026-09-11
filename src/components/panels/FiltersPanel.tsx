@@ -1,23 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { CalendarIcon, CloudUpload, FileJson, Search, Settings2, X } from "lucide-react";
-import type { DateRange } from "react-day-picker";
+import { CloudUpload, FileJson, Search, Settings2, X } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import type { FilterCriteria } from "@/lib/telegram/filter";
+import { monthEndDay } from "@/lib/telegram/filter";
 import { Chip } from "@/components/ui/Chip";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 function parseAuthorTokens(raw: string): Pick<
@@ -41,42 +35,33 @@ function parseAuthorTokens(raw: string): Pick<
   return { authorIds, authorNames, authorHandles };
 }
 
-function parseLocalDay(iso: string): Date {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
+function dayToMonth(iso: string | null): string | null {
+  return iso ? iso.slice(0, 7) : null;
 }
 
-function toLocalDay(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+function monthsToBounds(
+  monthFrom: string | null,
+  monthTo: string | null,
+): { dateFrom: string | null; dateTo: string | null } {
+  if (!monthFrom && !monthTo) return { dateFrom: null, dateTo: null };
+  const a = monthFrom ?? monthTo!;
+  const b = monthTo ?? monthFrom!;
+  const [start, end] = a <= b ? [a, b] : [b, a];
+  return { dateFrom: `${start}-01`, dateTo: monthEndDay(end) };
 }
 
-function criteriaToRange(criteria: FilterCriteria): DateRange | undefined {
-  if (!criteria.dateFrom && !criteria.dateTo) return undefined;
-  return {
-    from: criteria.dateFrom ? parseLocalDay(criteria.dateFrom) : undefined,
-    to: criteria.dateTo ? parseLocalDay(criteria.dateTo) : undefined,
-  };
+function formatMonthLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return format(new Date(y, m - 1, 1), "LLL yyyy", { locale: ru });
 }
 
-function rangeToBounds(range: DateRange | undefined): {
-  dateFrom: string | null;
-  dateTo: string | null;
-} {
-  if (!range?.from) return { dateFrom: null, dateTo: null };
-  const from = toLocalDay(range.from);
-  const to = range.to ? toLocalDay(range.to) : from;
-  return { dateFrom: from, dateTo: to };
-}
-
-function formatRangeLabel(range: DateRange | undefined): string {
-  if (!range?.from) return "Выберите даты";
-  if (!range.to || range.from.getTime() === range.to.getTime()) {
-    return format(range.from, "d MMM yyyy", { locale: ru });
-  }
-  return `${format(range.from, "d MMM yyyy", { locale: ru })} — ${format(range.to, "d MMM yyyy", { locale: ru })}`;
+function formatMonthRangeChip(dateFrom: string | null, dateTo: string | null): string {
+  const from = dayToMonth(dateFrom);
+  const to = dayToMonth(dateTo);
+  if (!from && !to) return "";
+  if (from && to && from === to) return formatMonthLabel(from);
+  if (from && to) return `${formatMonthLabel(from)} — ${formatMonthLabel(to)}`;
+  return formatMonthLabel((from ?? to)!);
 }
 
 function activeChips(criteria: FilterCriteria): { key: string; label: string }[] {
@@ -88,11 +73,9 @@ function activeChips(criteria: FilterCriteria): { key: string; label: string }[]
   for (const kw of criteria.keywordPatterns)
     chips.push({ key: `kw:${kw}`, label: kw });
   if (criteria.dateFrom || criteria.dateTo) {
-    const from = criteria.dateFrom ?? "…";
-    const to = criteria.dateTo ?? "…";
     chips.push({
-      key: `range:${from}:${to}`,
-      label: from === to ? from : `${from} — ${to}`,
+      key: `range:${criteria.dateFrom ?? ""}:${criteria.dateTo ?? ""}`,
+      label: formatMonthRangeChip(criteria.dateFrom, criteria.dateTo),
     });
   }
   return chips;
@@ -146,6 +129,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+const selectClass = cn(
+  "h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs",
+  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none",
+  "disabled:cursor-not-allowed disabled:opacity-50",
+);
+
 export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
   const {
     meta,
@@ -163,30 +152,15 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
 
   const [authorInput, setAuthorInput] = useState("");
   const [keywordInput, setKeywordInput] = useState("");
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [monthFrom, setMonthFrom] = useState<string | null>(null);
+  const [monthTo, setMonthTo] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setDateRange(criteriaToRange(criteria));
+    setMonthFrom(dayToMonth(criteria.dateFrom));
+    setMonthTo(dayToMonth(criteria.dateTo));
   }, [criteria.dateFrom, criteria.dateTo]);
-
-  const monthBounds = useMemo(() => {
-    if (months.length === 0) return null;
-    const first = months[0];
-    const last = months[months.length - 1];
-    const [fy, fm] = first.split("-").map(Number);
-    const [ly, lm] = last.split("-").map(Number);
-    return {
-      startMonth: new Date(fy, fm - 1, 1),
-      endMonth: new Date(ly, lm - 1, 1),
-      disabled: {
-        before: new Date(fy, fm - 1, 1),
-        after: new Date(ly, lm, 0),
-      },
-    };
-  }, [months]);
 
   function onFile(file: File | undefined) {
     if (!file?.name.endsWith(".json")) return;
@@ -195,14 +169,13 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
   }
 
   function buildCriteria(): FilterCriteria {
-    const bounds = rangeToBounds(dateRange);
     return {
       ...parseAuthorTokens(authorInput),
       keywordPatterns: keywordInput
         .split(/[\n,]/)
         .map((s) => s.trim())
         .filter(Boolean),
-      ...bounds,
+      ...monthsToBounds(monthFrom, monthTo),
     };
   }
 
@@ -211,11 +184,13 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
     const next = removeChipFromCriteria(criteria, key);
     setAuthorInput(authorsToInput(next));
     setKeywordInput(next.keywordPatterns.join(", "));
-    setDateRange(criteriaToRange(next));
+    setMonthFrom(dayToMonth(next.dateFrom));
+    setMonthTo(dayToMonth(next.dateTo));
     applyFilters(next);
   }
 
   const chips = activeChips(criteria);
+  const monthOptionsNewestFirst = [...months].reverse();
 
   return (
     <div className="h-full min-h-0 overflow-y-auto p-4">
@@ -337,37 +312,40 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
         <div className="space-y-2">
           <SectionLabel>Период</SectionLabel>
           {months.length > 0 ? (
-            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-              <PopoverTrigger
-                disabled={!meta || isBusy}
-                className={cn(
-                  buttonVariants({ variant: "outline" }),
-                  "w-full justify-start font-normal",
-                  !dateRange?.from && "text-muted-foreground",
-                )}
-              >
-                <CalendarIcon className="size-4" />
-                <span className="truncate">{formatRangeLabel(dateRange)}</span>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start" side="bottom">
-                <Calendar
-                  mode="range"
-                  locale={ru}
-                  captionLayout="dropdown"
-                  numberOfMonths={1}
-                  selected={dateRange}
-                  onSelect={(range) => {
-                    setDateRange(range);
-                    if (range?.from && range?.to) setCalendarOpen(false);
-                  }}
-                  defaultMonth={dateRange?.from ?? monthBounds?.endMonth}
-                  startMonth={monthBounds?.startMonth}
-                  endMonth={monthBounds?.endMonth}
-                  disabled={isBusy || monthBounds?.disabled}
-                  className="rounded-lg [--cell-size:--spacing(7)]"
-                />
-              </PopoverContent>
-            </Popover>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground">С месяца</p>
+                <select
+                  className={selectClass}
+                  value={monthFrom ?? ""}
+                  disabled={!meta || isBusy}
+                  onChange={(e) => setMonthFrom(e.target.value || null)}
+                >
+                  <option value="">—</option>
+                  {monthOptionsNewestFirst.map((m) => (
+                    <option key={`from-${m}`} value={m}>
+                      {formatMonthLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground">По месяц</p>
+                <select
+                  className={selectClass}
+                  value={monthTo ?? ""}
+                  disabled={!meta || isBusy}
+                  onChange={(e) => setMonthTo(e.target.value || null)}
+                >
+                  <option value="">—</option>
+                  {monthOptionsNewestFirst.map((m) => (
+                    <option key={`to-${m}`} value={m}>
+                      {formatMonthLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground">Загрузите экспорт</p>
           )}
@@ -407,7 +385,7 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
         {meta && (
           <p className="text-[10px] text-muted-foreground">
             {truncated
-              ? `Показаны первые ${MAX_UI_HITS} совпадений (есть ещё)`
+              ? `Показаны новейшие ${MAX_UI_HITS} совпадений (есть ещё)`
               : `${hitCount.toLocaleString()} совпадений`}
           </p>
         )}

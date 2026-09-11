@@ -7,16 +7,22 @@ export type ChunkDraft = {
   month?: string;
 };
 
+/** Length of «пожалуйста» — drop shorter message bodies from the RAG corpus. */
+export const MIN_RAG_TEXT_CHARS = 10;
+
 const DEFAULT_MAX_CHARS = 1800;
 const DEFAULT_OVERLAP = 200;
+
+export function isLongEnoughForRag(text: string): boolean {
+  return text.trim().length >= MIN_RAG_TEXT_CHARS;
+}
 
 /** Format a reply chain into a single text block for embedding / LLM context. */
 export function formatChainText(chain: NormalizedMessage[]): string {
   return chain
     .map((m) => {
       const who = m.from ?? m.fromId ?? "Unknown";
-      const when = m.date.replace("T", " ");
-      return `[${when}] ${who}: ${m.text}`;
+      return `[#${m.id}] ${who}: ${m.text}`;
     })
     .join("\n");
 }
@@ -66,17 +72,14 @@ export function chunkReplyChain(
   return chunks;
 }
 
-export function hitsToChunkDrafts(
-  hits: { matchedId: number; chain: NormalizedMessage[] }[],
+/** One indexable message → one or more drafts (char-window split for long text). */
+export function messagesToChunkDrafts(
+  messages: NormalizedMessage[],
 ): ChunkDraft[] {
   const out: ChunkDraft[] = [];
-  const seen = new Set<string>();
-  for (const hit of hits) {
-    for (const draft of chunkReplyChain(hit.matchedId, hit.chain)) {
-      if (seen.has(draft.id)) continue;
-      seen.add(draft.id);
-      out.push(draft);
-    }
+  for (const message of messages) {
+    if (!isLongEnoughForRag(message.text)) continue;
+    out.push(...chunkReplyChain(message.id, [message]));
   }
   return out;
 }

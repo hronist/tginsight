@@ -81,10 +81,12 @@
 | Компонент | Решение |
 |---|---|
 | Эмбеддинги | `@huggingface/transformers` (ранее `@xenova/transformers`), модель `Xenova/all-MiniLM-L6-v2` (~23 Мб), WebGPU → WASM fallback |
-| Чанкование | `@chonkiejs/core` (RecursiveChunker / TokenChunker). Стратегия для Telegram-диалогов — **TBD после анализа выгрузки**; стартовая гипотеза: один reply-chain = один чанк, длинные цепочки режутся TokenChunker с overlap |
+| Чанкование | Свой char-window splitter в `src/lib/rag/chunking.ts` (без `chonkiejs`). Одно индексное сообщение = один или несколько чанков; длинный текст режется окнами с overlap |
+| Корпус индекса | Весь чат: все `isIndexable` сообщения из parse worker (`rag-corpus` батчами), **не** UI `hits` и **не** лимит 100 |
 | Векторное хранилище | IndexedDB через `Dexie.js` |
-| Поиск | Cosine similarity, Top-K релевантных чанков (K настраивается, default 5–10) |
+| Поиск | Cosine similarity на main thread, Top-K релевантных чанков (K настраивается, default 5–10). В embed worker поиск пока не переносился |
 | Worker | **Отдельный** embed worker (не совмещать с parse worker) |
+| Сборка индекса | Только по кнопке «Собрать RAG-индекс». Нет auto-build при upload / первом Ask. Смена фильтров индекс **не** инвалидирует |
 
 #### Готовые библиотеки vs свой код
 
@@ -94,12 +96,13 @@
 * [advancedRagDemo](https://github.com/vishalmysore/advancedRagDemo) — гибридный RAG в браузере
 * [dhiya-npm](https://www.npmjs.com/package/dhiya-npm) — full browser RAG pipeline, но со своей LLM (не BYOK)
 
-**Решение v1:** собрать тонкий слой `telegram-rag` поверх chonkiejs + transformers.js + Dexie внутри проекта. Если слой окажется переиспользуемым — вынести в отдельный open-source репозиторий на GitHub (post-v1).
+**Решение v1:** тонкий слой RAG поверх transformers.js + Dexie + своего char-window chunking (без chonkiejs). Если слой окажется переиспользуемым — вынести в отдельный open-source репозиторий на GitHub (post-v1).
 
 #### Жизненный цикл IndexedDB (v1)
 
-* Загрузка нового файла → **полная перезапись** индекса и связанной истории RAG-запросов для этого чата.
-* При повторной загрузке того же файла — переиндексация с нуля.
+* Загрузка нового файла / clearFile → **полная перезапись** индекса и связанной истории RAG-запросов (Dexie clear). Смена фильтров индекс не трогает.
+* Индекс собирается вручную по кнопке после загрузки экспорта (весь чат).
+* При повторной загрузке того же файла — Dexie очищается; нужна повторная ручная сборка индекса.
 
 #### Что уходит в LLM
 
@@ -202,14 +205,17 @@ Workers общаются с main thread через typed `postMessage` + Transfe
 ### v1 (текущий scope)
 
 - [x] Парсинг + фильтрация (OR, regexp, months, author via `from` + `from_id`; `@username` только из mention-индекса если доступен)
-- [x] Full reply-chain stitching
-- [x] Локальный RAG (chunk → embed → search → LLM)
+- [x] Full reply-chain stitching (UI hits / фильтр)
+- [x] Локальный RAG: full-chat corpus из parse worker → char-window chunk (без chonkiejs) → embed → cosine search на main → LLM
+- [x] RAG UI на русском: ручная кнопка «Собрать RAG-индекс», Ask без auto-build, empty state без индекса
 - [x] Два режима LLM (OpenRouter / Proxy) в одном билде
 - [x] Streaming ответов
 - [x] System prompt + max tokens в настройках
 - [x] Локальная история RAG-запросов
-- [x] Перезапись данных при новом файле
-- [x] English UI, тесты, отдельные workers
+- [x] Перезапись данных при новом файле / clearFile (фильтры индекс не инвалидируют)
+- [x] UI (русский в IntelligencePanel), тесты, отдельные workers
+
+**Не в этом релизе (осознанно):** перенос cosine search в embed worker; зависимость `@chonkiejs/*`.
 
 ### v2 (out of scope v1)
 

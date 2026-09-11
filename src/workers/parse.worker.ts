@@ -10,6 +10,7 @@ import type {
   ParseWorkerRequest,
   ParseWorkerResponse,
 } from "@/workers/parse-protocol";
+import type { NormalizedMessage } from "@/types/telegram";
 
 let index: ParseIndex | null = null;
 
@@ -109,6 +110,31 @@ function runFilter(criteria: ParseWorkerRequest & { type: "filter" }) {
   });
 }
 
+/** Export indexable messages in orderedIds order, batched by offset into orderedIds. */
+function exportRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus" }) {
+  if (!index) {
+    post({ type: "error", message: "No export loaded. Parse a file first." });
+    return;
+  }
+
+  const messages: NormalizedMessage[] = [];
+  let i = Math.max(0, req.offset);
+  const limit = Math.max(1, req.limit);
+  while (i < index.orderedIds.length && messages.length < limit) {
+    const m = index.byId.get(index.orderedIds[i]!);
+    i += 1;
+    if (m && isIndexable(m)) messages.push(m);
+  }
+
+  post({
+    type: "rag-corpus-batch",
+    requestId: req.requestId,
+    messages,
+    nextOffset: i,
+    done: i >= index.orderedIds.length,
+  });
+}
+
 self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
   const msg = event.data;
   try {
@@ -118,6 +144,9 @@ self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
         break;
       case "filter":
         runFilter(msg);
+        break;
+      case "rag-corpus":
+        exportRagCorpus(msg);
         break;
       case "reset":
         index = null;

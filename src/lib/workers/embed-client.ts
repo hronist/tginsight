@@ -109,6 +109,9 @@ export class EmbedWorkerClient {
     batchIndex: number,
     batchTotal: number,
   ): Promise<{ id: string; embedding: number[] }[]> {
+    if (this.batchResolver) {
+      return Promise.reject(new Error("Embed batch already in flight"));
+    }
     const worker = this.ensureWorker();
     return new Promise((resolve, reject) => {
       this.batchResolver = (data) => {

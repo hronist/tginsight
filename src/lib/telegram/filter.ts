@@ -143,6 +143,7 @@ export function buildDefaultCriteria(months: string[]): FilterCriteria | null {
  * - dateFrom/dateTo ∧ authors ∧ keywords
  * - authors among themselves: OR (любой из выбранных)
  * - keywords among themselves: AND (все паттерны)
+ * - results are newest-first (orderedIds is oldest→newest export order)
  */
 export function filterMessages(
   orderedIds: number[],
@@ -165,19 +166,21 @@ export function filterMessages(
   // Collect one extra hit to distinguish "exactly maxHits" from "truncated".
   const collectLimit = Number.isFinite(maxHits) ? maxHits + 1 : Number.POSITIVE_INFINITY;
 
-  for (let i = 0; i < total; i++) {
+  let scanned = 0;
+  for (let i = total - 1; i >= 0; i--) {
+    scanned += 1;
     const id = orderedIds[i];
     const message = byId.get(id);
     if (!message || !isIndexable(message)) {
-      if (onProgress && (i % batch === 0 || i === total - 1)) {
-        onProgress(i + 1, total);
+      if (onProgress && (scanned % batch === 0 || scanned === total)) {
+        onProgress(scanned, total);
       }
       continue;
     }
 
     if (!matchesDateRange(message, criteria.dateFrom, criteria.dateTo)) {
-      if (onProgress && (i % batch === 0 || i === total - 1)) {
-        onProgress(i + 1, total);
+      if (onProgress && (scanned % batch === 0 || scanned === total)) {
+        onProgress(scanned, total);
       }
       continue;
     }
@@ -197,8 +200,8 @@ export function filterMessages(
       }
     }
 
-    if (onProgress && (i % batch === 0 || i === total - 1)) {
-      onProgress(i + 1, total);
+    if (onProgress && (scanned % batch === 0 || scanned === total)) {
+      onProgress(scanned, total);
     }
   }
 

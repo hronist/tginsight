@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
@@ -9,8 +9,11 @@ import {
   Hash,
   MessageCircle,
   Search,
+  Sparkles,
+  X,
 } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
+import { useRag } from "@/state/RagContext";
 import { hasActiveFilter } from "@/lib/telegram/filter";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import { UserAvatar, toneFromSeed } from "@/components/ui/user-avatar";
@@ -199,6 +202,63 @@ function EmptyPanel({ title, children }: { title: string; children: React.ReactN
   );
 }
 
+function RagBuildBanner({
+  indexing,
+  progressLabel,
+  indexableCount,
+  onBuild,
+  onDismiss,
+}: {
+  indexing: boolean;
+  progressLabel: string | null;
+  indexableCount: number;
+  onBuild: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mx-4 mt-1 mb-3 rounded-xl border border-primary/30 bg-accent/50 px-3.5 py-3 md:mx-5">
+      <div className="flex items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Sparkles className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold tracking-tight text-foreground">
+            {indexing ? "Собираем RAG-индекс…" : "Следующий шаг: собрать RAG-индекс"}
+          </p>
+          <p className="mt-1 text-[12px] leading-5 break-words text-muted-foreground">
+            {indexing
+              ? (progressLabel ?? "Индексация сообщений чата…")
+              : `Нужен один раз после загрузки. AI будет искать по всему чату (~${indexableCount.toLocaleString()} сообщений), не только по фильтру слева.`}
+          </p>
+          {!indexing && (
+            <Button
+              type="button"
+              size="sm"
+              className="mt-2.5"
+              onClick={onBuild}
+            >
+              <Sparkles className="size-3.5" />
+              Собрать RAG-индекс
+            </Button>
+          )}
+        </div>
+        {!indexing && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 text-muted-foreground"
+            aria-label="Скрыть подсказку"
+            onClick={onDismiss}
+          >
+            <X className="size-3.5" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function MessageStream() {
   const {
     meta,
@@ -209,10 +269,28 @@ export function MessageStream() {
     criteria,
     chainMessageCount,
   } = useChat();
+  const {
+    indexCount,
+    indexing,
+    progressLabel,
+    buildIndex,
+  } = useRag();
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(0);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set());
+  const [ragBannerDismissed, setRagBannerDismissed] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setRagBannerDismissed(false);
+  }, [meta?.chatId]);
+
+  const indexReady = indexCount > 0;
+  const showRagBanner =
+    Boolean(meta) &&
+    !isBusy &&
+    (!indexReady || indexing) &&
+    (indexing || !ragBannerDismissed);
 
   const highlightPatterns = useMemo(
     () => criteria.keywordPatterns.filter(Boolean),
@@ -313,6 +391,16 @@ export function MessageStream() {
           ⌘K
         </kbd>
       </div>
+
+      {showRagBanner && meta && (
+        <RagBuildBanner
+          indexing={indexing}
+          progressLabel={progressLabel}
+          indexableCount={meta.indexableCount}
+          onBuild={() => void buildIndex()}
+          onDismiss={() => setRagBannerDismissed(true)}
+        />
+      )}
 
       {!meta ? (
         <EmptyPanel title="Нет загруженного экспорта">

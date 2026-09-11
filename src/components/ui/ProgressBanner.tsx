@@ -6,7 +6,16 @@ import { Progress } from "@/components/ui/progress";
 
 export function ProgressBanner() {
   const { progress: parseProgress, error: parseError, isBusy } = useChat();
-  const { progress: ragProgress, error: ragError, indexing, asking } = useRag();
+  const { status, progressLabel, error: ragError, indexing, asking } = useRag();
+
+  const ragProgress =
+    status.kind === "building"
+      ? {
+          current: status.current,
+          total: status.total,
+          label: status.label ?? progressLabel ?? undefined,
+        }
+      : null;
 
   const progress = parseProgress ?? ragProgress;
   const error = parseError ?? ragError;
@@ -24,12 +33,12 @@ export function ProgressBanner() {
         <p className="text-xs text-destructive">{error}</p>
       ) : (
         <div className="mx-auto max-w-2xl space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>
+          <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+            <span className="min-w-0 flex-1 break-words whitespace-normal">
               {progress?.label ??
                 (isBusy || indexing || asking ? "Обработка…" : "")}
             </span>
-            <span>{pct}%</span>
+            <span className="shrink-0 tabular-nums">{pct}%</span>
           </div>
           <Progress value={pct} />
           {error && <p className="mt-1 text-xs text-destructive">{error}</p>}

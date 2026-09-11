@@ -5,6 +5,12 @@ import type { NormalizedMessage } from "@/types/telegram";
 export type ParseWorkerRequest =
   | { type: "parse"; fileBuffer: ArrayBuffer }
   | { type: "filter"; criteria: FilterCriteria; maxHits?: number; filterSeq: number }
+  | {
+      type: "rag-corpus";
+      offset: number;
+      limit: number;
+      requestId: string;
+    }
   | { type: "reset" };
 
 export type ParseWorkerProgress = {
@@ -37,6 +43,14 @@ export type ParseWorkerFiltered = {
   hits: FilterHit[];
 };
 
+export type ParseWorkerRagCorpusBatch = {
+  type: "rag-corpus-batch";
+  requestId: string;
+  messages: NormalizedMessage[];
+  nextOffset: number;
+  done: boolean;
+};
+
 export type ParseWorkerError = {
   type: "error";
   message: string;
@@ -46,6 +60,7 @@ export type ParseWorkerResponse =
   | ParseWorkerProgress
   | ParseWorkerParsed
   | ParseWorkerFiltered
+  | ParseWorkerRagCorpusBatch
   | ParseWorkerError
   | { type: "reset-done" };
 

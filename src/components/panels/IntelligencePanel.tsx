@@ -35,7 +35,7 @@ export function IntelligencePanel() {
     indexCount,
     indexing,
     asking,
-    progress,
+    progressLabel,
     error,
     history,
     streamingAnswer,
@@ -46,6 +46,7 @@ export function IntelligencePanel() {
   } = useRag();
 
   const [prompt, setPrompt] = useState("");
+  const indexReady = indexCount > 0;
 
   const topAuthors = useMemo(() => authors.slice(0, 3), [authors]);
   const totalAuthorMsgs = useMemo(
@@ -55,7 +56,7 @@ export function IntelligencePanel() {
 
   async function onSend() {
     const trimmed = prompt.trim();
-    if (!trimmed || asking || indexing) return;
+    if (!trimmed || asking || indexing || !indexReady) return;
     setPrompt("");
     await ask(trimmed);
   }
@@ -141,10 +142,10 @@ export function IntelligencePanel() {
                 <CardTitle className="text-xs">Спросите по данным</CardTitle>
                 <CardDescription className="text-[10px]">
                   Контекст:{" "}
-                  {indexCount > 0
+                  {indexReady
                     ? `${indexCount.toLocaleString()} чанков`
                     : meta
-                      ? `${hitCount.toLocaleString()} совпадений`
+                      ? "индекс не собран"
                       : "нет данных"}
                 </CardDescription>
               </div>
@@ -152,12 +153,23 @@ export function IntelligencePanel() {
             </CardHeader>
 
             <CardContent className="space-y-2">
+              {meta && !indexReady && !indexing && (
+                <p className="rounded-md border-l-2 border-muted-foreground/40 bg-muted/40 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+                  RAG ищет по всему загруженному чату, не по фильтру слева.
+                  Один раз нажмите «Собрать RAG-индекс», потом можно спрашивать.
+                </p>
+              )}
               {modelBanner && (
                 <p className="rounded-md border-l-2 border-primary bg-accent/60 px-2 py-1.5 text-[10px] leading-relaxed">
                   Загрузка модели эмбеддингов (~23 MB).
                   <Button variant="link" className="h-auto p-0 text-[10px]" onClick={dismissModelBanner}>
                     Скрыть
                   </Button>
+                </p>
+              )}
+              {indexing && progressLabel && (
+                <p className="rounded-md border-l-2 border-primary bg-accent/60 px-2 py-1.5 text-[10px] leading-relaxed break-words whitespace-normal">
+                  {progressLabel}
                 </p>
               )}
               {error && (
@@ -174,12 +186,12 @@ export function IntelligencePanel() {
               <Button
                 className="w-full"
                 variant="secondary"
-                disabled={!meta || hitCount === 0 || indexing || asking}
+                disabled={!meta || indexing || asking}
                 onClick={() => void buildIndex()}
               >
                 {indexing
-                  ? progress?.label ?? "Индексация…"
-                  : indexCount > 0
+                  ? "Индексация…"
+                  : indexReady
                     ? `Пересобрать · ${indexCount.toLocaleString()}`
                     : "Собрать RAG-индекс"}
               </Button>
@@ -191,7 +203,7 @@ export function IntelligencePanel() {
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Например: какие решения приняли по API?"
                   rows={2}
-                  disabled={asking || indexing}
+                  disabled={asking || indexing || !indexReady}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -205,7 +217,7 @@ export function IntelligencePanel() {
                   </Button>
                   <Button
                     size="icon-sm"
-                    disabled={!prompt.trim() || asking || indexing}
+                    disabled={!prompt.trim() || asking || indexing || !indexReady}
                     onClick={() => void onSend()}
                     aria-label="Отправить"
                   >
