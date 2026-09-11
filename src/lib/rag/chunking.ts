@@ -7,14 +7,30 @@ export type ChunkDraft = {
   month?: string;
 };
 
-/** Length of «пожалуйста» — drop shorter message bodies from the RAG corpus. */
-export const MIN_RAG_TEXT_CHARS = 10;
+/**
+ * Min Unicode letters (\\p{L}) in the message body after stripping URLs.
+ * Drops short acknowledgments and letter-less noise (emoji, digits, bare links).
+ * Threshold matches letter count of «пожалуйста».
+ */
+export const MIN_RAG_LETTERS = 10;
 
 const DEFAULT_MAX_CHARS = 1800;
 const DEFAULT_OVERLAP = 200;
 
+const LETTER_RE = /\p{L}/gu;
+const URL_RE = /https?:\/\/\S+/gi;
+
+export function countLetters(text: string): number {
+  return (text.match(LETTER_RE) ?? []).length;
+}
+
+/** Letter count used for RAG eligibility (URLs do not count). */
+export function ragLetterCount(text: string): number {
+  return countLetters(text.replace(URL_RE, " "));
+}
+
 export function isLongEnoughForRag(text: string): boolean {
-  return text.trim().length >= MIN_RAG_TEXT_CHARS;
+  return ragLetterCount(text) >= MIN_RAG_LETTERS;
 }
 
 /** Format a reply chain into a single text block for embedding / LLM context. */

@@ -16,6 +16,7 @@ import {
   type EmbedModelSpec,
 } from "@/lib/rag/embed-models";
 import type {
+  EmbedDevice,
   EmbedWorkerRequest,
   EmbedWorkerResponse,
 } from "@/workers/embed-protocol";
@@ -27,6 +28,7 @@ type PipelineBackend = {
   kind: "pipeline";
   extractor: FeatureExtractionPipeline;
   spec: EmbedModelSpec;
+  device: EmbedDevice;
 };
 
 type Model2VecBackend = {
@@ -34,6 +36,7 @@ type Model2VecBackend = {
   model: PreTrainedModel;
   tokenizer: PreTrainedTokenizer;
   spec: EmbedModelSpec;
+  device: EmbedDevice;
 };
 
 type EmbedBackend = PipelineBackend | Model2VecBackend;
@@ -50,49 +53,96 @@ function clearBackend() {
   backend = null;
 }
 
-async function loadPipelineBackend(spec: EmbedModelSpec): Promise<PipelineBackend> {
-  const extractor = await pipeline("feature-extraction", spec.hfId, {
-    dtype: spec.dtype,
-    progress_callback: (p) => {
-      if (!p || typeof p !== "object") return;
-      const status = (p as { status?: string }).status;
-      const progress = (p as { progress?: number }).progress;
-      if (status === "progress" && typeof progress === "number") {
+async function webGpuAvailable(): Promise<boolean> {
+  const nav = self.navigator as Navigator & {
+    gpu?: {
+      requestAdapter: (options?: {
+        powerPreference?: "high-performance" | "low-power";
+      }) => Promise<{
+        requestAdapterInfo?: () => Promise<{ vendor?: string; architecture?: string }>;
+      } | null>;
+    };
+  };
+  const gpu = nav.gpu;
+  if (!gpu) return false;
+  try {
+    // Prefer discrete GPU when the browser exposes one (integrated/software is often "available" but slow).
+    const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) return false;
+    try {
+      const info = await adapter.requestAdapterInfo?.();
+      if (info?.vendor || info?.architecture) {
         post({
           type: "progress",
           stage: "model",
-          current: Math.round(progress),
+          current: 0,
           total: 100,
-          label: `Downloading ${spec.label} (~${spec.approxDownloadMb} MB)…`,
+          label: `GPU: ${info.vendor ?? "?"} / ${info.architecture ?? "?"}`,
         });
       }
-    },
-  });
-  return { kind: "pipeline", extractor, spec };
+    } catch {
+      // requestAdapterInfo is optional / permission-gated in some browsers
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-async function loadModel2VecBackend(spec: EmbedModelSpec): Promise<Model2VecBackend> {
+type LoadAttempt = { device: EmbedDevice };
+
+async function loadAttempts(): Promise<LoadAttempt[]> {
+  if (await webGpuAvailable()) {
+    return [{ device: "webgpu" }, { device: "wasm" }];
+  }
+  return [{ device: "wasm" }];
+}
+
+function progressCallback(spec: EmbedModelSpec) {
+  return (p: unknown) => {
+    if (!p || typeof p !== "object") return;
+    const status = (p as { status?: string }).status;
+    const progress = (p as { progress?: number }).progress;
+    if (status === "progress" && typeof progress === "number") {
+      post({
+        type: "progress",
+        stage: "model",
+        current: Math.round(progress),
+        total: 100,
+        label: `Скачивание ${spec.label} (~${spec.approxDownloadMb} МБ)…`,
+      });
+    }
+  };
+}
+
+async function loadPipelineBackend(
+  spec: EmbedModelSpec,
+  device: EmbedDevice,
+): Promise<PipelineBackend> {
+  // q8 is the WASM path; WebGPU prefers fp16 (HF default for GPU is fp32/fp16).
+  const dtype = device === "webgpu" ? "fp16" : spec.dtype;
+  const extractor = await pipeline("feature-extraction", spec.hfId, {
+    dtype,
+    device: device === "webgpu" ? "webgpu" : "wasm",
+    progress_callback: progressCallback(spec),
+  });
+  return { kind: "pipeline", extractor, spec, device };
+}
+
+async function loadModel2VecBackend(
+  spec: EmbedModelSpec,
+  device: EmbedDevice,
+): Promise<Model2VecBackend> {
+  const dtype = device === "webgpu" ? "fp32" : spec.dtype;
   const model = await AutoModel.from_pretrained(spec.hfId, {
     // HF typings expect a full PretrainedConfig; Model2Vec only needs model_type.
     config: { model_type: "model2vec" } as never,
-    dtype: spec.dtype,
-    progress_callback: (p) => {
-      if (!p || typeof p !== "object") return;
-      const status = (p as { status?: string }).status;
-      const progress = (p as { progress?: number }).progress;
-      if (status === "progress" && typeof progress === "number") {
-        post({
-          type: "progress",
-          stage: "model",
-          current: Math.round(progress),
-          total: 100,
-          label: `Downloading ${spec.label} (~${spec.approxDownloadMb} MB)…`,
-        });
-      }
-    },
+    dtype,
+    device: device === "webgpu" ? "webgpu" : "wasm",
+    progress_callback: progressCallback(spec),
   });
   const tokenizer = await AutoTokenizer.from_pretrained(spec.hfId);
-  return { kind: "model2vec", model, tokenizer, spec };
+  return { kind: "model2vec", model, tokenizer, spec, device };
 }
 
 async function ensureModel(modelKey: EmbedModelKey) {
@@ -100,21 +150,48 @@ async function ensureModel(modelKey: EmbedModelKey) {
   if (backend && backend.spec.key === spec.key) return backend;
 
   clearBackend();
-  post({
-    type: "progress",
-    stage: "model",
-    current: 0,
-    total: 1,
-    label: `Loading ${spec.label} (~${spec.approxDownloadMb} MB). Cached after first run.`,
-  });
+  const attempts = await loadAttempts();
+  let lastError: unknown;
 
-  backend =
-    spec.kind === "model2vec"
-      ? await loadModel2VecBackend(spec)
-      : await loadPipelineBackend(spec);
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i]!;
+    const deviceLabel = attempt.device === "webgpu" ? "WebGPU" : "WASM";
+    post({
+      type: "progress",
+      stage: "model",
+      current: 0,
+      total: 100,
+      label: `Загрузка ${spec.label} (${deviceLabel}, ~${spec.approxDownloadMb} МБ)…`,
+    });
 
-  post({ type: "model-ready" });
-  return backend;
+    try {
+      backend =
+        spec.kind === "model2vec"
+          ? await loadModel2VecBackend(spec, attempt.device)
+          : await loadPipelineBackend(spec, attempt.device);
+      post({ type: "model-ready", device: attempt.device });
+      return backend;
+    } catch (error) {
+      lastError = error;
+      clearBackend();
+      const more = i < attempts.length - 1;
+      if (more) {
+        const message =
+          error instanceof Error ? error.message : "WebGPU недоступен";
+        post({
+          type: "progress",
+          stage: "model",
+          current: 0,
+          total: 100,
+          label: `${deviceLabel} не подошёл (${message}). Пробуем WASM…`,
+        });
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Не удалось загрузить модель эмбеддингов");
 }
 
 function l2Normalize(rows: number[][]): number[][] {
@@ -190,7 +267,7 @@ async function handleMessage(msg: EmbedWorkerRequest) {
         stage: "embed",
         current: msg.batchIndex,
         total: msg.batchTotal,
-        label: `Embedding batch ${msg.batchIndex + 1} / ${msg.batchTotal}`,
+        label: `Эмбеддинг батч ${msg.batchIndex + 1} / ${msg.batchTotal}`,
       });
       const vectors = await embedTexts(
         msg.items.map((i) => i.text),

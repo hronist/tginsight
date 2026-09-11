@@ -45,9 +45,11 @@ import type { QueryHistoryRow } from "@/lib/db/schema";
 import type { ChunkDraft } from "@/lib/rag/chunking";
 import type { RagCorpusScope } from "@/lib/workers/parse-client";
 
-const EMBED_BATCH = 16;
-const CORPUS_BATCH = 300;
+const EMBED_BATCH_WASM = 16;
+const EMBED_BATCH_WEBGPU = 64;
 const TOP_K = 8;
+/** Don't yield to React after every embed batch — that adds scheduling noise. */
+const UI_YIELD_EVERY_BATCHES = 4;
 
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => {
@@ -117,7 +119,20 @@ export function RagProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const client = new EmbedWorkerClient({
-      onProgress: () => undefined,
+      onProgress: (progress) => {
+        if (progress.stage !== "model") return;
+        setStatus((prev) => {
+          if (prev.kind !== "building") return prev;
+          return {
+            kind: "building",
+            current: progress.current,
+            total: Math.max(progress.total, 1),
+            label:
+              progress.label ??
+              `Загрузка модели эмбеддингов… ${progress.current}%`,
+          };
+        });
+      },
       onModelReady: () => {
         setModelReady(true);
       },
@@ -204,12 +219,21 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setStatus({
           kind: "building",
           current: 0,
-          total,
-          label: `0 / ${total.toLocaleString()} · 0 чанков`,
+          total: 100,
+          label: `Загрузка ${model.label} (~${model.approxDownloadMb} МБ)…`,
         });
 
         await client.loadModel(modelKey);
         setModelBanner(false);
+        const embedBatch =
+          client.device === "webgpu" ? EMBED_BATCH_WEBGPU : EMBED_BATCH_WASM;
+        const deviceLabel = client.device === "webgpu" ? "WebGPU" : "WASM";
+        setStatus({
+          kind: "building",
+          current: 0,
+          total: Math.max(total, 1),
+          label: `0 / ${total.toLocaleString()} · 0 чанков · ${deviceLabel}`,
+        });
 
         const allDrafts: ChunkDraft[] = [];
         const allVectors: { id: string; embedding: number[] }[] = [];
@@ -219,7 +243,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
         let done = false;
 
         while (!done) {
-          const batch = await fetchRagCorpus(offset, CORPUS_BATCH, scope);
+          // Pull the same number of messages as the embed batch so corpus I/O
+          // stays in lockstep with GPU/WASM work (not a large 300-message buffer).
+          const batch = await fetchRagCorpus(offset, embedBatch, scope);
           const drafts = messagesToChunkDrafts(batch.messages);
           processed += batch.messages.length;
           offset = batch.nextOffset;
@@ -228,12 +254,12 @@ export function RagProvider({ children }: { children: ReactNode }) {
           setStatus({
             kind: "building",
             current: processed,
-            total,
-            label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
+            total: Math.max(total, 1),
+            label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков · ${deviceLabel}`,
           });
 
-          for (let i = 0; i < drafts.length; i += EMBED_BATCH) {
-            const slice = drafts.slice(i, i + EMBED_BATCH);
+          for (let i = 0; i < drafts.length; i += embedBatch) {
+            const slice = drafts.slice(i, i + embedBatch);
             const vectors = await client.embedBatch(
               slice.map((d) => ({ id: d.id, text: d.text })),
               embedBatchIndex,
@@ -245,10 +271,12 @@ export function RagProvider({ children }: { children: ReactNode }) {
             setStatus({
               kind: "building",
               current: processed,
-              total,
-              label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков`,
+              total: Math.max(total, 1),
+              label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков · ${deviceLabel}`,
             });
-            await yieldToUi();
+            if (embedBatchIndex % UI_YIELD_EVERY_BATCHES === 0) {
+              await yieldToUi();
+            }
           }
         }
 

@@ -1,5 +1,6 @@
 import type { EmbedModelKey } from "@/lib/rag/embed-models";
 import type {
+  EmbedDevice,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerResponse,
@@ -12,7 +13,7 @@ type PendingQuery = {
 
 export type EmbedClientHandlers = {
   onProgress?: (progress: EmbedWorkerProgress) => void;
-  onModelReady?: () => void;
+  onModelReady?: (device: EmbedDevice) => void;
   onError?: (message: string) => void;
 };
 
@@ -23,6 +24,12 @@ export class EmbedWorkerClient {
   private modelReady = false;
   private loadedModelKey: EmbedModelKey | null = null;
   private modelPromise: Promise<void> | null = null;
+  private activeDevice: EmbedDevice = "wasm";
+
+  /** Backend used by the last successful loadModel. */
+  get device(): EmbedDevice {
+    return this.activeDevice;
+  }
 
   constructor(handlers: EmbedClientHandlers = {}) {
     this.handlers = handlers;
@@ -43,7 +50,8 @@ export class EmbedWorkerClient {
           break;
         case "model-ready":
           this.modelReady = true;
-          this.handlers.onModelReady?.();
+          this.activeDevice = data.device;
+          this.handlers.onModelReady?.(data.device);
           break;
         case "batch-done":
           this.batchResolver?.(data);
@@ -81,7 +89,10 @@ export class EmbedWorkerClient {
     | null = null;
   private batchRejecter: ((error: Error) => void) | null = null;
 
-  async loadModel(modelKey: EmbedModelKey): Promise<void> {
+  async loadModel(
+    modelKey: EmbedModelKey,
+    options?: { timeoutMs?: number },
+  ): Promise<void> {
     if (this.modelReady && this.loadedModelKey === modelKey) return;
     if (this.modelPromise && this.loadedModelKey === modelKey) {
       return this.modelPromise;
@@ -94,22 +105,47 @@ export class EmbedWorkerClient {
 
     const worker = this.ensureWorker();
     this.loadedModelKey = modelKey;
+    const timeoutMs = options?.timeoutMs ?? 5 * 60 * 1000;
     this.modelPromise = new Promise<void>((resolve, reject) => {
       const prevReady = this.handlers.onModelReady;
       const prevError = this.handlers.onError;
-      this.handlers.onModelReady = () => {
-        prevReady?.();
-        this.handlers.onModelReady = prevReady;
-        this.handlers.onError = prevError;
-        resolve();
-      };
-      this.handlers.onError = (message) => {
-        prevError?.(message);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         this.handlers.onModelReady = prevReady;
         this.handlers.onError = prevError;
         this.modelPromise = null;
         this.modelReady = false;
-        reject(new Error(message));
+        reject(
+          new Error(
+            "Таймаут загрузки модели эмбеддингов. Проверьте доступ к huggingface.co и попробуйте снова.",
+          ),
+        );
+      }, timeoutMs);
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      this.handlers.onModelReady = (device) => {
+        finish(() => {
+          prevReady?.(device);
+          this.handlers.onModelReady = prevReady;
+          this.handlers.onError = prevError;
+          resolve();
+        });
+      };
+      this.handlers.onError = (message) => {
+        finish(() => {
+          prevError?.(message);
+          this.handlers.onModelReady = prevReady;
+          this.handlers.onError = prevError;
+          this.modelPromise = null;
+          this.modelReady = false;
+          reject(new Error(message));
+        });
       };
       worker.postMessage({
         type: "load-model",
@@ -167,6 +203,7 @@ export class EmbedWorkerClient {
     this.modelReady = false;
     this.loadedModelKey = null;
     this.modelPromise = null;
+    this.activeDevice = "wasm";
     this.pendingQueries.clear();
   }
 }

@@ -10,7 +10,8 @@ import {
   normalizeMessage,
 } from "../src/lib/telegram/normalize.ts";
 import {
-  MIN_RAG_TEXT_CHARS,
+  MIN_RAG_LETTERS,
+  isLongEnoughForRag,
   messagesToChunkDrafts,
 } from "../src/lib/rag/chunking.ts";
 import type { TGExport } from "../src/types/telegram.ts";
@@ -41,12 +42,11 @@ for (const id of index.orderedIds) {
   if (!m.isService && !m.isForward && m.text.trim().length === 0) emptyText += 1;
   if (!isIndexable(m)) continue;
   indexable += 1;
-  const len = m.text.trim().length;
-  if (len < MIN_RAG_TEXT_CHARS) {
+  if (!isLongEnoughForRag(m.text)) {
     shortSkipped += 1;
     continue;
   }
-  textLens.push(len);
+  textLens.push(m.text.trim().length);
 }
 
 const corpus = [];
@@ -108,7 +108,7 @@ const report = {
     forward,
     emptyNonServiceNonForward: emptyText,
     indexable,
-    shortSkippedBelowMinChars: shortSkipped,
+    shortSkippedBelowMinLetters: shortSkipped,
     ragEligibleMessages: textLens.length,
     chunkDrafts: drafts.length,
     multiPartChunks: multiPart,
@@ -117,11 +117,11 @@ const report = {
   },
   filters: {
     isIndexable: "!service && !forward && text.trim().length > 0",
-    MIN_RAG_TEXT_CHARS,
+    MIN_RAG_LETTERS,
     maxChars: 1800,
     overlap: 200,
     EMBED_BATCH,
-    CORPUS_BATCH: 300,
+    CORPUS_BATCH: "matches embed batch (16 wasm / 64 webgpu)",
   },
   textChars: {
     eligibleSum: sum(textLens),

@@ -1,5 +1,7 @@
 import type { EmbedModelKey } from "@/lib/rag/embed-models";
 
+export type EmbedDevice = "webgpu" | "wasm";
+
 export type EmbedWorkerRequest =
   | { type: "load-model"; modelKey: EmbedModelKey }
   | {
@@ -21,6 +23,7 @@ export type EmbedWorkerProgress = {
 
 export type EmbedWorkerModelReady = {
   type: "model-ready";
+  device: EmbedDevice;
 };
 
 export type EmbedWorkerBatchDone = {

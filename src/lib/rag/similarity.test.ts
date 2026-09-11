@@ -6,10 +6,12 @@ import {
 } from "@/lib/rag/similarity";
 import {
   chunkReplyChain,
+  countLetters,
   formatChainText,
   isLongEnoughForRag,
   messagesToChunkDrafts,
-  MIN_RAG_TEXT_CHARS,
+  MIN_RAG_LETTERS,
+  ragLetterCount,
 } from "@/lib/rag/chunking";
 import type { NormalizedMessage } from "@/types/telegram";
 
@@ -66,9 +68,10 @@ describe("chunkReplyChain", () => {
 });
 
 describe("messagesToChunkDrafts", () => {
-  it("formats with message id and keeps texts at min length", () => {
-    expect(MIN_RAG_TEXT_CHARS).toBe("пожалуйста".length);
+  it("formats with message id and keeps texts at min letter count", () => {
+    expect(MIN_RAG_LETTERS).toBe(countLetters("пожалуйста"));
     expect(isLongEnoughForRag("пожалуйста")).toBe(true);
+    expect(isLongEnoughForRag("пожалуйста!!!")).toBe(true);
 
     const drafts = messagesToChunkDrafts([
       msg({ id: 10, text: "пожалуйста", from: "Alice" }),
@@ -84,14 +87,21 @@ describe("messagesToChunkDrafts", () => {
     expect(drafts[1]?.text).toBe("[#11] Bob: длиннее десяти");
   });
 
-  it("skips messages shorter than MIN_RAG_TEXT_CHARS", () => {
+  it("skips short or letter-poor messages", () => {
     const drafts = messagesToChunkDrafts([
       msg({ id: 1, text: "ок", from: "Alice" }),
       msg({ id: 2, text: "  short  ", from: "Bob" }),
-      msg({ id: 3, text: "123456789", from: "Carol" }),
+      msg({ id: 3, text: "1234567890", from: "Carol" }),
+      msg({ id: 4, text: "👀".repeat(12), from: "Dan" }),
+      msg({ id: 5, text: "https://t.me/example", from: "Eve" }),
+      msg({ id: 6, text: "........", from: "Frank" }),
     ]);
     expect(drafts).toHaveLength(0);
-    expect(isLongEnoughForRag("123456789")).toBe(false);
+    expect(isLongEnoughForRag("1234567890")).toBe(false);
+    expect(isLongEnoughForRag("👀".repeat(12))).toBe(false);
+    expect(ragLetterCount("https://t.me/example")).toBe(0);
+    expect(isLongEnoughForRag("https://t.me/example")).toBe(false);
+    expect(isLongEnoughForRag("смотри https://t.me/x пожалуйста")).toBe(true);
   });
 
   it("splits a long message into overlapping windows", () => {
