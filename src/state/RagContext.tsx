@@ -85,6 +85,11 @@ function resolveBuildScope(args: {
   return fromCriteria;
 }
 
+export type AskView = {
+  prompt: string;
+  answer: string;
+};
+
 type RagContextValue = {
   status: RagIndexStatus;
   indexCount: number;
@@ -97,7 +102,9 @@ type RagContextValue = {
   progressLabel: string | null;
   error: string | null;
   history: QueryHistoryRow[];
-  streamingAnswer: string;
+  askView: AskView | null;
+  closeAskView: () => void;
+  openAskView: (view: AskView) => void;
   buildIndex: (options?: { entireChat?: boolean }) => Promise<void>;
   ask: (prompt: string) => Promise<void>;
   refreshHistory: () => Promise<void>;
@@ -117,8 +124,21 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<QueryHistoryRow[]>([]);
-  const [streamingAnswer, setStreamingAnswer] = useState("");
+  const [askView, setAskView] = useState<AskView | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const askGenerationRef = useRef(0);
+
+  const closeAskView = useCallback(() => {
+    askGenerationRef.current += 1;
+    abortRef.current?.abort();
+    setAskView(null);
+  }, []);
+
+  const openAskView = useCallback((view: AskView) => {
+    askGenerationRef.current += 1;
+    abortRef.current?.abort();
+    setAskView(view);
+  }, []);
 
   const effectiveStatus = resolveIndexStatus(meta?.chatId, status);
   const indexCount = indexChunkCount(effectiveStatus);
@@ -166,10 +186,12 @@ export function RagProvider({ children }: { children: ReactNode }) {
 
   // Reset local RAG state when export changes (ChatContext clears Dexie)
   useEffect(() => {
+    askGenerationRef.current += 1;
+    abortRef.current?.abort();
+    setAskView(null);
     if (!meta) {
       setStatus({ kind: "absent" });
       setHistory([]);
-      setStreamingAnswer("");
       setError(null);
       return;
     }
@@ -345,7 +367,8 @@ export function RagProvider({ children }: { children: ReactNode }) {
 
       setError(null);
       setAsking(true);
-      setStreamingAnswer("");
+      const generation = ++askGenerationRef.current;
+      setAskView({ prompt: trimmed, answer: "" });
       setModelBannerMb(getEmbedModel(modelKey).approxDownloadMb);
       setModelBanner(true);
       abortRef.current?.abort();
@@ -372,7 +395,11 @@ export function RagProvider({ children }: { children: ReactNode }) {
         const hasKey = Boolean(settings.apiKey.trim());
         if (!hasKey) {
           const answer = formatRetrieveOnlyAnswer(trimmedChunks);
-          setStreamingAnswer(answer);
+          setAskView((prev) =>
+            askGenerationRef.current === generation && prev
+              ? { ...prev, answer }
+              : prev,
+          );
           await addQueryHistory({
             prompt: trimmed,
             response: answer,
@@ -380,7 +407,6 @@ export function RagProvider({ children }: { children: ReactNode }) {
             retrievedChunkIds: trimmedChunks.map((c) => c.id),
           });
           await refreshHistory();
-          setStreamingAnswer("");
           return;
         }
 
@@ -397,7 +423,11 @@ export function RagProvider({ children }: { children: ReactNode }) {
           signal: abort.signal,
           onToken: (token) => {
             answer += token;
-            setStreamingAnswer(answer);
+            setAskView((prev) =>
+              askGenerationRef.current === generation && prev
+                ? { ...prev, answer }
+                : prev,
+            );
           },
         });
 
@@ -408,10 +438,13 @@ export function RagProvider({ children }: { children: ReactNode }) {
           retrievedChunkIds: trimmedChunks.map((c) => c.id),
         });
         await refreshHistory();
-        setStreamingAnswer("");
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         setError(err instanceof Error ? err.message : "Запрос не удался");
+        setAskView((prev) => {
+          if (askGenerationRef.current !== generation) return prev;
+          return prev && prev.answer ? prev : null;
+        });
       } finally {
         setAsking(false);
       }
@@ -434,7 +467,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
         error ??
         (effectiveStatus.kind === "error" ? effectiveStatus.message : null),
       history,
-      streamingAnswer,
+      askView,
+      closeAskView,
+      openAskView,
       buildIndex,
       ask,
       refreshHistory,
@@ -451,7 +486,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
       progressLabel,
       error,
       history,
-      streamingAnswer,
+      askView,
+      closeAskView,
+      openAskView,
       buildIndex,
       ask,
       refreshHistory,

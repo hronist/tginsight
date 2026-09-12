@@ -11,9 +11,10 @@ import {
   X,
 } from "lucide-react";
 import { ChatProvider } from "@/state/ChatContext";
-import { RagProvider } from "@/state/RagContext";
+import { RagProvider, useRag } from "@/state/RagContext";
 import { useChat } from "@/state/ChatContext";
 import { FiltersPanel } from "@/components/panels/FiltersPanel";
+import { AskResultPanel } from "@/components/panels/AskResultPanel";
 import { MessageStream } from "@/components/panels/MessageStream";
 import { IntelligencePanel } from "@/components/panels/IntelligencePanel";
 import { ProgressBanner } from "@/components/ui/ProgressBanner";
@@ -98,6 +99,7 @@ function TopBar({
 function ShellBody() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { fileName } = useChat();
+  const { askView } = useRag();
   const [uploadToast, setUploadToast] = useState(false);
 
   function onUploaded() {
@@ -148,7 +150,7 @@ function ShellBody() {
         </aside>
 
         <div className="min-h-0 min-w-0 overflow-hidden">
-          <MessageStream />
+          {askView ? <AskResultPanel /> : <MessageStream />}
         </div>
 
         <aside className="hidden min-h-0 overflow-hidden border-l border-border bg-card lg:flex lg:flex-col">

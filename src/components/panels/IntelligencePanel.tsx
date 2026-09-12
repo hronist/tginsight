@@ -44,7 +44,7 @@ export function IntelligencePanel() {
     progressLabel,
     error,
     history,
-    streamingAnswer,
+    openAskView,
     modelBanner,
     modelBannerMb,
     dismissModelBanner,
@@ -234,11 +234,6 @@ export function IntelligencePanel() {
                   {error}
                 </p>
               )}
-              {asking && streamingAnswer && (
-                <p className="rounded-md border-l-2 border-primary bg-accent/40 px-2 py-1.5 text-[10px] leading-relaxed whitespace-pre-wrap">
-                  {streamingAnswer}
-                </p>
-              )}
 
               <Button
                 className="w-full"
@@ -309,15 +304,19 @@ export function IntelligencePanel() {
                 История запросов
               </div>
               {history.slice(0, 5).map((item) => (
-                <details key={item.id} className="group rounded-lg border border-border bg-background/60 px-2 py-1.5">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[10px]">
-                    <span className="min-w-0 flex-1 truncate font-medium">{item.prompt}</span>
-                    <Clock3 className="size-3 shrink-0 text-muted-foreground" />
-                  </summary>
-                  <p className="mt-2 border-l-2 border-primary/40 bg-muted/40 px-2 py-1.5 text-[10px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-                    {item.response}
-                  </p>
-                </details>
+                <button
+                  key={item.id}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-2 py-1.5 text-left text-[10px]"
+                  onClick={() =>
+                    openAskView({ prompt: item.prompt, answer: item.response })
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {item.prompt}
+                  </span>
+                  <Clock3 className="size-3 shrink-0 text-muted-foreground" />
+                </button>
               ))}
             </>
           )}
