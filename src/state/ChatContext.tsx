@@ -56,6 +56,8 @@ type ChatContextValue = {
     scope?: RagCorpusScope,
   ) => Promise<RagCorpusBatch>;
   countRagCorpus: (scope?: RagCorpusScope) => Promise<number>;
+  /** Messages + reply chains for RAG hit rendering. */
+  getMessagesByIds: (ids: number[]) => Promise<FilterHit[]>;
 };
 
 const emptyCriteria: FilterCriteria = {
@@ -276,6 +278,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const getMessagesByIds = useCallback(async (ids: number[]) => {
+    const client = clientRef.current;
+    if (!client) {
+      throw new Error("Parse worker is not ready");
+    }
+    return client.getMessagesByIds(ids);
+  }, []);
+
   const value = useMemo<ChatContextValue>(
     () => ({
       meta,
@@ -298,6 +308,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       applyFilters,
       fetchRagCorpus,
       countRagCorpus,
+      getMessagesByIds,
     }),
     [
       meta,
@@ -320,6 +331,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       applyFilters,
       fetchRagCorpus,
       countRagCorpus,
+      getMessagesByIds,
     ],
   );
 

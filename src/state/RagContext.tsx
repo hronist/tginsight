@@ -28,6 +28,7 @@ import {
 import {
   addQueryHistory,
   draftsToRows,
+  getChunksByIds,
   getIndexCount,
   getIndexedAt,
   getMetaEmbedModel,
@@ -38,12 +39,15 @@ import {
   setMetaRagMonthRange,
 } from "@/lib/rag/store";
 import { estimateTokens, trimChunksToTokenBudget } from "@/lib/rag/similarity";
+import type { RankedChunk } from "@/lib/rag/similarity";
 import { buildRagMessages, streamChatCompletion } from "@/lib/llm/chat";
 import { loadAiSettings } from "@/lib/settings/storage";
 import { useChat } from "@/state/ChatContext";
 import type { QueryHistoryRow } from "@/lib/db/schema";
 import type { ChunkDraft } from "@/lib/rag/chunking";
 import type { RagCorpusScope } from "@/lib/workers/parse-client";
+import type { FilterHit } from "@/lib/telegram/filter";
+import type { NormalizedMessage } from "@/types/telegram";
 
 const EMBED_BATCH_WASM = 16;
 const EMBED_BATCH_WEBGPU = 64;
@@ -57,15 +61,33 @@ function yieldToUi(): Promise<void> {
   });
 }
 
-function formatRetrieveOnlyAnswer(
-  chunks: { text: string; score: number }[],
-): string {
-  const body = chunks
-    .map(
-      (c, i) => `### ${i + 1} · score ${c.score.toFixed(3)}\n${c.text}`,
-    )
-    .join("\n\n");
-  return `Локальный поиск (без LLM — добавьте API ключ в Настройках для ответа модели):\n\n${body}`;
+function formatRetrieveOnlyHistory(hitCount: number): string {
+  return `Локальный поиск · ${hitCount} сообщений`;
+}
+
+async function rankedChunksToAskHits(
+  chunks: RankedChunk[],
+  getMessagesByIds: (ids: number[]) => Promise<FilterHit[]>,
+): Promise<AskHit[]> {
+  const ids = chunks
+    .map((c) => c.messageIds[0])
+    .filter((id): id is number => typeof id === "number");
+  const filterHits = await getMessagesByIds(ids);
+  const byMatched = new Map(filterHits.map((h) => [h.matchedId, h]));
+  const out: AskHit[] = [];
+  for (const chunk of chunks) {
+    const id = chunk.messageIds[0];
+    if (id == null) continue;
+    const hit = byMatched.get(id);
+    if (!hit) continue;
+    out.push({
+      matchedId: hit.matchedId,
+      chain: hit.chain,
+      score: chunk.score,
+      chunkId: chunk.id,
+    });
+  }
+  return out;
 }
 
 function resolveBuildScope(args: {
@@ -85,9 +107,19 @@ function resolveBuildScope(args: {
   return fromCriteria;
 }
 
+export type AskHit = {
+  matchedId: number;
+  chain: NormalizedMessage[];
+  score: number;
+  chunkId: string;
+};
+
 export type AskView = {
   prompt: string;
+  /** LLM answer text; empty for retrieve-only. */
   answer: string;
+  hits: AskHit[];
+  mode: "retrieve" | "llm";
 };
 
 type RagContextValue = {
@@ -105,6 +137,7 @@ type RagContextValue = {
   askView: AskView | null;
   closeAskView: () => void;
   openAskView: (view: AskView) => void;
+  openHistoryAsk: (item: QueryHistoryRow) => Promise<void>;
   buildIndex: (options?: { entireChat?: boolean }) => Promise<void>;
   ask: (prompt: string) => Promise<void>;
   refreshHistory: () => Promise<void>;
@@ -113,7 +146,14 @@ type RagContextValue = {
 const RagContext = createContext<RagContextValue | null>(null);
 
 export function RagProvider({ children }: { children: ReactNode }) {
-  const { meta, criteria, months, fetchRagCorpus, countRagCorpus } = useChat();
+  const {
+    meta,
+    criteria,
+    months,
+    fetchRagCorpus,
+    countRagCorpus,
+    getMessagesByIds,
+  } = useChat();
   const clientRef = useRef<EmbedWorkerClient | null>(null);
   const [status, setStatus] = useState<RagIndexStatus>({ kind: "absent" });
   const [modelReady, setModelReady] = useState(false);
@@ -139,6 +179,33 @@ export function RagProvider({ children }: { children: ReactNode }) {
     abortRef.current?.abort();
     setAskView(view);
   }, []);
+
+  const openHistoryAsk = useCallback(
+    async (item: QueryHistoryRow) => {
+      const rows = await getChunksByIds(item.retrievedChunkIds);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const ranked: RankedChunk[] = [];
+      for (const id of item.retrievedChunkIds) {
+        const row = byId.get(id);
+        if (!row) continue;
+        ranked.push({
+          id: row.id,
+          text: row.text,
+          score: 0,
+          messageIds: row.messageIds,
+        });
+      }
+      const hits = await rankedChunksToAskHits(ranked, getMessagesByIds);
+      const retrieveOnly = item.response.startsWith("Локальный поиск");
+      openAskView({
+        prompt: item.prompt,
+        answer: retrieveOnly ? "" : item.response,
+        hits,
+        mode: retrieveOnly ? "retrieve" : "llm",
+      });
+    },
+    [getMessagesByIds, openAskView],
+  );
 
   const effectiveStatus = resolveIndexStatus(meta?.chatId, status);
   const indexCount = indexChunkCount(effectiveStatus);
@@ -368,7 +435,13 @@ export function RagProvider({ children }: { children: ReactNode }) {
       setError(null);
       setAsking(true);
       const generation = ++askGenerationRef.current;
-      setAskView({ prompt: trimmed, answer: "" });
+      const hasKey = Boolean(settings.apiKey.trim());
+      setAskView({
+        prompt: trimmed,
+        answer: "",
+        hits: [],
+        mode: hasKey ? "llm" : "retrieve",
+      });
       setModelBannerMb(getEmbedModel(modelKey).approxDownloadMb);
       setModelBanner(true);
       abortRef.current?.abort();
@@ -391,23 +464,37 @@ export function RagProvider({ children }: { children: ReactNode }) {
           settings.maxContextTokens,
           overhead,
         );
+        const hits = await rankedChunksToAskHits(
+          trimmedChunks,
+          getMessagesByIds,
+        );
 
-        const hasKey = Boolean(settings.apiKey.trim());
         if (!hasKey) {
-          const answer = formatRetrieveOnlyAnswer(trimmedChunks);
-          setAskView((prev) =>
-            askGenerationRef.current === generation && prev
-              ? { ...prev, answer }
-              : prev,
-          );
+          if (askGenerationRef.current === generation) {
+            setAskView({
+              prompt: trimmed,
+              answer: "",
+              hits,
+              mode: "retrieve",
+            });
+          }
           await addQueryHistory({
             prompt: trimmed,
-            response: answer,
+            response: formatRetrieveOnlyHistory(hits.length),
             createdAt: Date.now(),
             retrievedChunkIds: trimmedChunks.map((c) => c.id),
           });
           await refreshHistory();
           return;
+        }
+
+        if (askGenerationRef.current === generation) {
+          setAskView({
+            prompt: trimmed,
+            answer: "",
+            hits,
+            mode: "llm",
+          });
         }
 
         const messages = buildRagMessages({
@@ -443,13 +530,13 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setError(err instanceof Error ? err.message : "Запрос не удался");
         setAskView((prev) => {
           if (askGenerationRef.current !== generation) return prev;
-          return prev && prev.answer ? prev : null;
+          return prev && (prev.answer || prev.hits.length > 0) ? prev : null;
         });
       } finally {
         setAsking(false);
       }
     },
-    [effectiveStatus, refreshHistory],
+    [effectiveStatus, getMessagesByIds, refreshHistory],
   );
 
   const value = useMemo<RagContextValue>(
@@ -470,6 +557,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       askView,
       closeAskView,
       openAskView,
+      openHistoryAsk,
       buildIndex,
       ask,
       refreshHistory,
@@ -489,6 +577,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       askView,
       closeAskView,
       openAskView,
+      openHistoryAsk,
       buildIndex,
       ask,
       refreshHistory,

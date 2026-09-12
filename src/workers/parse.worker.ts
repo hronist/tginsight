@@ -2,6 +2,7 @@
 
 import { buildParseIndex, isIndexable } from "@/lib/telegram/normalize";
 import { filterMessages } from "@/lib/telegram/filter";
+import { buildReplyChain } from "@/lib/telegram/reply-chain";
 import { countChainMessages } from "@/lib/telegram/render-stats";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import { messageInMonthRange } from "@/lib/rag/corpus-scope";
@@ -11,6 +12,7 @@ import type {
   ParseWorkerRequest,
   ParseWorkerResponse,
 } from "@/workers/parse-protocol";
+import type { FilterHit } from "@/lib/telegram/filter";
 import type { NormalizedMessage } from "@/types/telegram";
 
 let index: ParseIndex | null = null;
@@ -171,6 +173,32 @@ function countRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus-count" }) 
   });
 }
 
+/** Resolve message ids to FilterHit chains (same shape as UI filter hits). */
+function getMessages(req: ParseWorkerRequest & { type: "get-messages" }) {
+  if (!index) {
+    post({ type: "error", message: "No export loaded. Parse a file first." });
+    return;
+  }
+
+  const hits: FilterHit[] = [];
+  const seen = new Set<number>();
+  for (const id of req.ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (!index.byId.has(id)) continue;
+    hits.push({
+      matchedId: id,
+      chain: buildReplyChain(id, index.byId),
+    });
+  }
+
+  post({
+    type: "messages",
+    requestId: req.requestId,
+    hits,
+  });
+}
+
 self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
   const msg = event.data;
   try {
@@ -186,6 +214,9 @@ self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
         break;
       case "rag-corpus-count":
         countRagCorpus(msg);
+        break;
+      case "get-messages":
+        getMessages(msg);
         break;
       case "reset":
         index = null;

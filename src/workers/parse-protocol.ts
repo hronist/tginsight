@@ -19,6 +19,12 @@ export type ParseWorkerRequest =
       monthFrom?: string | null;
       monthTo?: string | null;
     }
+  | {
+      type: "get-messages";
+      requestId: string;
+      /** Primary message ids (matched hits). Reply chains are expanded in the worker. */
+      ids: number[];
+    }
   | { type: "reset" };
 
 export type ParseWorkerProgress = {
@@ -65,6 +71,12 @@ export type ParseWorkerRagCorpusCount = {
   total: number;
 };
 
+export type ParseWorkerMessages = {
+  type: "messages";
+  requestId: string;
+  hits: FilterHit[];
+};
+
 export type ParseWorkerError = {
   type: "error";
   message: string;
@@ -76,7 +88,8 @@ export type ParseWorkerResponse =
   | ParseWorkerFiltered
   | ParseWorkerRagCorpusBatch
   | ParseWorkerRagCorpusCount
+  | ParseWorkerMessages
   | ParseWorkerError
   | { type: "reset-done" };
 
-export type { FilterCriteria, FilterHit, NormalizedMessage, AuthorStat };
+export type { FilterCriteria, FilterHit, NormalizedMessage };

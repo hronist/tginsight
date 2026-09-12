@@ -59,6 +59,13 @@ export class ParseWorkerClient {
       reject: (err: Error) => void;
     }
   >();
+  private pendingMessages = new Map<
+    string,
+    {
+      resolve: (hits: FilterHit[]) => void;
+      reject: (err: Error) => void;
+    }
+  >();
 
   constructor(handlers: ParseClientHandlers = {}) {
     this.handlers = handlers;
@@ -78,6 +85,10 @@ export class ParseWorkerClient {
       pending.reject(err);
     }
     this.pendingCorpusCount.clear();
+    for (const pending of this.pendingMessages.values()) {
+      pending.reject(err);
+    }
+    this.pendingMessages.clear();
   }
 
   private ensureWorker() {
@@ -109,6 +120,14 @@ export class ParseWorkerClient {
           if (pending) {
             this.pendingCorpusCount.delete(data.requestId);
             pending.resolve(data.total);
+          }
+          break;
+        }
+        case "messages": {
+          const pending = this.pendingMessages.get(data.requestId);
+          if (pending) {
+            this.pendingMessages.delete(data.requestId);
+            pending.resolve(data.hits);
           }
           break;
         }
@@ -193,6 +212,21 @@ export class ParseWorkerClient {
         requestId,
         monthFrom: scope.monthFrom ?? null,
         monthTo: scope.monthTo ?? null,
+      } satisfies ParseWorkerRequest);
+    });
+  }
+
+  /** Load messages + reply chains for ids (RAG result rendering). */
+  getMessagesByIds(ids: number[]): Promise<FilterHit[]> {
+    const requestId = newRequestId("msgs");
+    const unique = [...new Set(ids.filter((id) => Number.isFinite(id)))];
+    if (unique.length === 0) return Promise.resolve([]);
+    return new Promise((resolve, reject) => {
+      this.pendingMessages.set(requestId, { resolve, reject });
+      this.ensureWorker().postMessage({
+        type: "get-messages",
+        requestId,
+        ids: unique,
       } satisfies ParseWorkerRequest);
     });
   }

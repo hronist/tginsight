@@ -99,6 +99,12 @@ export function draftsToRows(
   return rows;
 }
 
+export async function getChunksByIds(ids: string[]): Promise<ChunkRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await db.chunks.bulkGet(ids);
+  return rows.filter((row): row is ChunkRow => row != null);
+}
+
 export async function listQueryHistory(limit = 50): Promise<QueryHistoryRow[]> {
   return db.queryHistory.orderBy("createdAt").reverse().limit(limit).toArray();
 }
