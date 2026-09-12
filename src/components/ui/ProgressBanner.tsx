@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
 import { useRag } from "@/state/RagContext";
 import { Progress } from "@/components/ui/progress";
@@ -28,13 +29,20 @@ export function ProgressBanner() {
       : 0;
 
   return (
-    <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-2">
+    <div className="shrink-0 border-b border-border bg-card px-4 py-2.5 shadow-sm">
       {error && !progress ? (
-        <p className="text-xs text-destructive">{error}</p>
+        <div className="mx-auto flex max-w-2xl items-start gap-2 text-xs text-destructive">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <p>{error}</p>
+        </div>
       ) : (
-        <div className="mx-auto max-w-2xl space-y-1">
+        <div className="mx-auto max-w-2xl space-y-1.5">
           <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
-            <span className="min-w-0 flex-1 break-words whitespace-normal">
+            <span className="flex min-w-0 flex-1 items-start gap-2 break-words whitespace-normal">
+              <Loader2
+                className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary motion-reduce:animate-none"
+                aria-hidden
+              />
               {progress?.label ??
                 (isBusy || indexing || asking ? "Обработка…" : "")}
             </span>

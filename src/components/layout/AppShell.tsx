@@ -8,7 +8,6 @@ import {
   Menu,
   MessageCircle,
   Tags,
-  X,
 } from "lucide-react";
 import { ChatProvider } from "@/state/ChatContext";
 import { RagProvider, useRag } from "@/state/RagContext";
@@ -18,6 +17,7 @@ import { AskResultPanel } from "@/components/panels/AskResultPanel";
 import { MessageStream } from "@/components/panels/MessageStream";
 import { IntelligencePanel } from "@/components/panels/IntelligencePanel";
 import { ProgressBanner } from "@/components/ui/ProgressBanner";
+import { StatusToast } from "@/components/ui/StatusToast";
 import { SettingsMenu } from "@/components/ui/SettingsMenu";
 import { DebugStrip } from "@/components/ui/DebugStrip";
 import { Badge } from "@/components/ui/badge";
@@ -112,23 +112,11 @@ function ShellBody() {
       <TopBar sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
       <ProgressBanner />
 
-      {uploadToast && fileName && (
-        <div
-          className="fixed top-16 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 shadow-lg"
-          role="status"
-        >
-          Файл экспорта готов к анализу
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => setUploadToast(false)}
-            aria-label="Закрыть"
-          >
-            <X className="size-3" />
-          </Button>
-        </div>
-      )}
+      <StatusToast
+        open={Boolean(uploadToast && fileName)}
+        message="Файл экспорта готов к анализу"
+        onClose={() => setUploadToast(false)}
+      />
 
       {sidebarOpen && (
         <button
