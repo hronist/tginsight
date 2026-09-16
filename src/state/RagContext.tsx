@@ -27,17 +27,21 @@ import {
 } from "@/lib/rag/index-state";
 import {
   addQueryHistory,
+  attachContentHashes,
+  commitChunkIndex,
   draftsToRows,
   getChunksByIds,
   getIndexCount,
   getIndexedAt,
   getMetaEmbedModel,
   listQueryHistory,
-  replaceChunkIndex,
+  loadReusableEmbeddings,
   searchChunks,
   setMetaEmbedModel,
   setMetaRagMonthRange,
+  upsertChunkRows,
 } from "@/lib/rag/store";
+import { setMetaIndexedChatId } from "@/lib/db/schema";
 import { estimateTokens, trimChunksToTokenBudget } from "@/lib/rag/similarity";
 import type { RankedChunk } from "@/lib/rag/similarity";
 import { buildRagMessages, streamChatCompletion } from "@/lib/llm/chat";
@@ -251,7 +255,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Reset local RAG state when export changes (ChatContext clears Dexie)
+  // Rehydrate RAG status when export chatId changes (index may be kept).
   useEffect(() => {
     askGenerationRef.current += 1;
     abortRef.current?.abort();
@@ -332,55 +336,33 @@ export function RagProvider({ children }: { children: ReactNode }) {
           kind: "building",
           current: 0,
           total: Math.max(total, 1),
-          label: `0 / ${total.toLocaleString()} · 0 чанков · ${deviceLabel}`,
+          label: `0 / ${total.toLocaleString()} · чтение корпуса · ${deviceLabel}`,
         });
 
-        const allDrafts: ChunkDraft[] = [];
-        const allVectors: { id: string; embedding: number[] }[] = [];
+        // Load full scoped corpus then chunk once so author/reply units
+        // are not split on embed-batch boundaries.
+        const corpus: NormalizedMessage[] = [];
         let offset = 0;
         let processed = 0;
-        let embedBatchIndex = 0;
         let done = false;
-
+        const fetchSize = Math.max(embedBatch * 4, 256);
         while (!done) {
-          // Pull the same number of messages as the embed batch so corpus I/O
-          // stays in lockstep with GPU/WASM work (not a large 300-message buffer).
-          const batch = await fetchRagCorpus(offset, embedBatch, scope);
-          const drafts = messagesToChunkDrafts(batch.messages);
+          const batch = await fetchRagCorpus(offset, fetchSize, scope);
+          corpus.push(...batch.messages);
           processed += batch.messages.length;
           offset = batch.nextOffset;
           done = batch.done;
-
           setStatus({
             kind: "building",
             current: processed,
             total: Math.max(total, 1),
-            label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков · ${deviceLabel}`,
+            label: `${processed.toLocaleString()} / ${total.toLocaleString()} · чтение корпуса · ${deviceLabel}`,
           });
-
-          for (let i = 0; i < drafts.length; i += embedBatch) {
-            const slice = drafts.slice(i, i + embedBatch);
-            const vectors = await client.embedBatch(
-              slice.map((d) => ({ id: d.id, text: d.text })),
-              embedBatchIndex,
-              embedBatchIndex + 1,
-            );
-            embedBatchIndex += 1;
-            allDrafts.push(...slice);
-            allVectors.push(...vectors);
-            setStatus({
-              kind: "building",
-              current: processed,
-              total: Math.max(total, 1),
-              label: `${processed.toLocaleString()} / ${total.toLocaleString()} · ${allVectors.length.toLocaleString()} чанков · ${deviceLabel}`,
-            });
-            if (embedBatchIndex % UI_YIELD_EVERY_BATCHES === 0) {
-              await yieldToUi();
-            }
-          }
         }
 
-        if (allDrafts.length === 0) {
+        let drafts = messagesToChunkDrafts(corpus);
+        drafts = await attachContentHashes(drafts, modelKey);
+        if (drafts.length === 0) {
           setStatus({
             kind: "error",
             message: "В выбранном периоде нет сообщений для индексации.",
@@ -388,10 +370,58 @@ export function RagProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const rows = draftsToRows(allDrafts, allVectors);
+        const reusable = await loadReusableEmbeddings(modelKey);
+        const needEmbed: ChunkDraft[] = [];
+        const reusedVectors: { id: string; embedding: Float32Array | number[] }[] =
+          [];
+        for (const draft of drafts) {
+          const hit =
+            draft.contentHash != null
+              ? reusable.get(draft.contentHash)
+              : undefined;
+          if (hit) {
+            reusedVectors.push({ id: draft.id, embedding: hit });
+          } else {
+            needEmbed.push(draft);
+          }
+        }
+
+        setStatus({
+          kind: "building",
+          current: 0,
+          total: Math.max(needEmbed.length, 1),
+          label: `Эмбеддинг ${needEmbed.length.toLocaleString()} новых / ${drafts.length.toLocaleString()} чанков · кеш ${reusedVectors.length.toLocaleString()} · ${deviceLabel}`,
+        });
+
+        const freshVectors: { id: string; embedding: number[] }[] = [];
+        let embedBatchIndex = 0;
+        for (let i = 0; i < needEmbed.length; i += embedBatch) {
+          const slice = needEmbed.slice(i, i + embedBatch);
+          const vectors = await client.embedBatch(
+            slice.map((d) => ({ id: d.id, text: d.text })),
+            embedBatchIndex,
+            Math.max(1, Math.ceil(needEmbed.length / embedBatch)),
+          );
+          embedBatchIndex += 1;
+          freshVectors.push(...vectors);
+          const partialRows = draftsToRows(slice, vectors);
+          await upsertChunkRows(partialRows);
+          setStatus({
+            kind: "building",
+            current: Math.min(i + slice.length, needEmbed.length),
+            total: Math.max(needEmbed.length, 1),
+            label: `Эмбеддинг ${(i + slice.length).toLocaleString()} / ${needEmbed.length.toLocaleString()} новых · всего ${drafts.length.toLocaleString()} · ${deviceLabel}`,
+          });
+          if (embedBatchIndex % UI_YIELD_EVERY_BATCHES === 0) {
+            await yieldToUi();
+          }
+        }
+
+        const rows = draftsToRows(drafts, [...reusedVectors, ...freshVectors]);
         const builtAt = Date.now();
-        await replaceChunkIndex(rows);
+        await commitChunkIndex(rows);
         await setMetaEmbedModel(modelKey);
+        await setMetaIndexedChatId(meta.chatId);
         await setMetaRagMonthRange(
           scope.monthFrom ?? "",
           scope.monthTo ?? "",

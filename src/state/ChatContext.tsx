@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { ParseWorkerClient } from "@/lib/workers/parse-client";
-import { clearChatData } from "@/lib/db/schema";
+import { clearChatData, prepareForImportedChat } from "@/lib/db/schema";
 import type { AuthorStat } from "@/lib/telegram/normalize";
 import type { FilterCriteria, FilterHit } from "@/lib/telegram/filter";
 import { buildDefaultCriteria, hasActiveFilter } from "@/lib/telegram/filter";
@@ -98,7 +98,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setProgress(p);
       },
       onParsed: async (parsed) => {
-        await clearChatData().catch(() => undefined);
+        // Same chatId → keep Dexie RAG index for delta rebuild / reload.
+        await prepareForImportedChat(parsed.chatId).catch(() =>
+          clearChatData(),
+        );
         setMeta({
           chatName: parsed.chatName,
           chatType: parsed.chatType,

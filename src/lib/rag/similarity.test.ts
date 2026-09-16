@@ -74,8 +74,14 @@ describe("messagesToChunkDrafts", () => {
     expect(isLongEnoughForRag("пожалуйста!!!")).toBe(true);
 
     const drafts = messagesToChunkDrafts([
-      msg({ id: 10, text: "пожалуйста", from: "Alice" }),
-      msg({ id: 11, text: "длиннее десяти", from: "Bob" }),
+      msg({ id: 10, text: "пожалуйста", from: "Alice", fromId: "a" }),
+      msg({
+        id: 11,
+        text: "длиннее десяти",
+        from: "Bob",
+        fromId: "b",
+        date: "2024-01-01T12:00:00",
+      }),
     ]);
     expect(drafts).toHaveLength(2);
     expect(drafts[0]).toMatchObject({
@@ -85,6 +91,52 @@ describe("messagesToChunkDrafts", () => {
     });
     expect(drafts[1]?.id).toBe("msg-11");
     expect(drafts[1]?.text).toBe("[#11] Bob: длиннее десяти");
+  });
+
+  it("merges same-author bursts within a few minutes", () => {
+    const drafts = messagesToChunkDrafts([
+      msg({
+        id: 1,
+        text: "первая мысль подробнее",
+        from: "Alice",
+        fromId: "a",
+        date: "2024-01-01T10:00:00",
+      }),
+      msg({
+        id: 2,
+        text: "вторая мысль подробнее",
+        from: "Alice",
+        fromId: "a",
+        date: "2024-01-01T10:01:00",
+      }),
+    ]);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.messageIds).toEqual([1, 2]);
+    expect(drafts[0]?.id).toBe("msg-2");
+    expect(drafts[0]?.text).toContain("[#1] Alice:");
+    expect(drafts[0]?.text).toContain("[#2] Alice:");
+  });
+
+  it("keeps reply continuations in one unit", () => {
+    const drafts = messagesToChunkDrafts([
+      msg({
+        id: 1,
+        text: "вопрос про дедлайн пожалуйста",
+        from: "Alice",
+        fromId: "a",
+        date: "2024-01-01T10:00:00",
+      }),
+      msg({
+        id: 2,
+        text: "ответ про дедлайн пожалуйста",
+        from: "Bob",
+        fromId: "b",
+        replyToId: 1,
+        date: "2024-01-01T11:00:00",
+      }),
+    ]);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.messageIds).toEqual([1, 2]);
   });
 
   it("skips short or letter-poor messages", () => {
@@ -109,7 +161,7 @@ describe("messagesToChunkDrafts", () => {
       msg({ id: 42, text: "z".repeat(2500), from: "Carol" }),
     ]);
     expect(drafts.length).toBeGreaterThan(1);
-    expect(drafts.every((d) => d.messageIds[0] === 42)).toBe(true);
+    expect(drafts.every((d) => d.messageIds.includes(42))).toBe(true);
     expect(drafts[0]?.id).toBe("msg-42-p0");
     expect(drafts[1]?.id).toBe("msg-42-p1");
     expect(drafts[0]?.text.startsWith("[#42] Carol:")).toBe(true);

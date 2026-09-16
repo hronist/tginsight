@@ -111,6 +111,20 @@ Near-dedup через MinHash можно добавить позже. Есть �
 
 Это важнее semantic chunking и HNSW для скорости построения.
 
+---
 
+## Статус внедрения (`feature/rag-speed-index`)
 
-  
+Сделано:
+
+1. `prepareForImportedChat(chatId)` — повторный импорт того же чата не чистит Dexie.
+2. Content-hash delta cache (`modelKey + conv-v1 + text`) + `commitChunkIndex` / streaming `upsertChunkRows`.
+3. Model2Vec сначала пробует WASM, затем WebGPU.
+4. Conversation chunking: author burst (3 мин) + reply-aware + exact-dedup текста.
+5. Измеритель `scripts/measure-rag-corpus.mts` считает units / collapsed dups / reply share.
+
+Ещё не сделано:
+
+- BM25 + RRF (MiniSearch/Orama).
+- Transferable `Float32Array` в embed worker (сейчас streaming number[] в Dexie).
+- Eval Recall@5 на 20–30 запросах.

@@ -13,6 +13,7 @@ import {
   MIN_RAG_LETTERS,
   isLongEnoughForRag,
   messagesToChunkDrafts,
+  summarizeChunkPlan,
 } from "../src/lib/rag/chunking.ts";
 import type { TGExport } from "../src/types/telegram.ts";
 
@@ -57,6 +58,7 @@ for (const id of index.orderedIds) {
 
 const t1 = performance.now();
 const drafts = messagesToChunkDrafts(corpus);
+const plan = summarizeChunkPlan(corpus);
 const chunkMs = performance.now() - t1;
 
 const draftLens = drafts.map((d) => d.text.length);
@@ -110,7 +112,10 @@ const report = {
     indexable,
     shortSkippedBelowMinLetters: shortSkipped,
     ragEligibleMessages: textLens.length,
+    conversationUnits: plan.units,
     chunkDrafts: drafts.length,
+    exactDupCollapsed: plan.exactDupCollapsed,
+    replyLinkedEligible: plan.replyLinkedEligible,
     multiPartChunks: multiPart,
     uniqueMessagesInDrafts: uniqueMsgIds.size,
     embedBatchesOf16: embedBatches,
@@ -118,10 +123,11 @@ const report = {
   filters: {
     isIndexable: "!service && !forward && text.trim().length > 0",
     MIN_RAG_LETTERS,
+    chunker: "conv-v1 author-burst + reply + exact-dedup",
     maxChars: 1800,
     overlap: 200,
     EMBED_BATCH,
-    CORPUS_BATCH: "matches embed batch (16 wasm / 64 webgpu)",
+    CORPUS_BATCH: "full scope load then chunk (not per embed batch)",
   },
   textChars: {
     eligibleSum: sum(textLens),

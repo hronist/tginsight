@@ -91,8 +91,15 @@ async function webGpuAvailable(): Promise<boolean> {
 
 type LoadAttempt = { device: EmbedDevice };
 
-async function loadAttempts(): Promise<LoadAttempt[]> {
-  if (await webGpuAvailable()) {
+/** Model2Vec is lookup+mean — WASM often beats WebGPU dispatch on short chats. */
+async function loadAttempts(spec: EmbedModelSpec): Promise<LoadAttempt[]> {
+  const gpu = await webGpuAvailable();
+  if (spec.kind === "model2vec") {
+    return gpu
+      ? [{ device: "wasm" }, { device: "webgpu" }]
+      : [{ device: "wasm" }];
+  }
+  if (gpu) {
     return [{ device: "webgpu" }, { device: "wasm" }];
   }
   return [{ device: "wasm" }];
@@ -150,7 +157,7 @@ async function ensureModel(modelKey: EmbedModelKey) {
   if (backend && backend.spec.key === spec.key) return backend;
 
   clearBackend();
-  const attempts = await loadAttempts();
+  const attempts = await loadAttempts(spec);
   let lastError: unknown;
 
   for (let i = 0; i < attempts.length; i++) {
