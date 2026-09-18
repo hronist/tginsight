@@ -18,6 +18,9 @@ data/
 # Local benches / model caches (large, throwaway)
 scratch/
 
+# Local decision trails (show-me-your-work)
+.audit/
+
 # Cursor / editor local config
 .cursor/
 
