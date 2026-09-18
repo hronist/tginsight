@@ -2,6 +2,8 @@
   "name": "tg-chat-intelligence",
   "version": "0.1.0",
   "private": true,
+  "description": "Client-side Telegram chat analytics with local RAG and BYOK LLM (TG Insight)",
+  "license": "MIT",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",

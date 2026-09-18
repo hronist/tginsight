@@ -43,6 +43,26 @@ SAMPLE=128 BATCH=16 npx tsx scratch/embed-bench/run.mts
 
 Сырой лог. `scratch/embed-bench/results.json`.
 
+## Device: cpu vs webgpu (Potion, WSL Node, 2026-09-17)
+
+Замер **возможен из WSL** через Node `@huggingface/transformers` (не нужен Linux Chrome).  
+В Node `device: "wasm"` **не существует** (`cuda|webgpu|cpu`); браузерный WASM ≈ Node `cpu`.
+
+```bash
+SAMPLE=256 BATCH=16 npx tsx scratch/embed-bench/device-bench.mts
+```
+
+Условия. `minishlab/potion-multilingual-128M`, 256 текстов, batch 16, fp32, warmup 1. Сырьё: `scratch/embed-bench/device-results.json`.
+
+| Device | texts/s | мс/текст | Экстрап. 165k* |
+|---|---|---|---|
+| `cpu` (≈ browser WASM) | **115.3** | 8.67 | ~24 мин |
+| `webgpu` | 84.1 | 11.89 | ~33 мин |
+
+**WebGPU / CPU throughput = 0.73** — на этой машине GPU-путь *медленнее*. В логе Dawn/Mesa (`maxDynamic*Buffers… reduced`, `mesa_shader_cache`) → почти наверняка **software WebGPU**, не дискретная GPU хоста. Windows Chrome headless видит `navigator.gpu` + adapter (`maxBufferSize` 2 ГБ), но `adapter.info` пустой — vendor/device из headless не вытащили.
+
+Вывод для продукта. Wasm-first для Model2Vec на WSL/слабом GPU оправдан этими цифрами. Честный A/B «дискретная WebGPU в Chrome на Windows» этим прогоном **не заменён**.
+
 ## Качество RU smoke (4 пары)
 
 Separation = avg(related) − avg(unrelated). Больше лучше. Узкий smoke, не MTEB.
@@ -89,6 +109,8 @@ Build-time остаётся только реестр допустимых кл�
 ## Ссылки на код замера
 
 - `scratch/embed-bench/run.mts`
+- `scratch/embed-bench/device-bench.mts` (cpu vs webgpu)
 - `scratch/embed-bench/e5-quality.mts`
 - `scratch/embed-bench/results.json`
+- `scratch/embed-bench/device-results.json`
 - `scripts/measure-rag-corpus.mts` (размер корпуса без embed)

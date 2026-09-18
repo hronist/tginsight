@@ -98,7 +98,7 @@ Near-dedup через MinHash можно добавить позже. Есть �
 1. `ChatContext.onParsed` вызывает `clearChatData()` при каждой загрузке экспорта. Поэтому повторный импорт того же чата уничтожает пригодный индекс. Инкрементальный кеш сначала требует перестать очищать данные без проверки `chatId` и версии корпуса.
 2. Worker вызывает `.tolist()` и передаёт `number[][]` через `postMessage`. Векторы копируются и затем целиком хранятся в RAM до завершения. Лучше передавать плоский transferable `Float32Array` и записывать батчи в Dexie сразу.
 
-Ещё один полезный эксперимент: для Model2Vec сравнить WebGPU и WASM. На коротких сообщениях lookup + mean настолько дёшевы, что запуск GPU может оказаться медленнее CPU.
+Эксперимент Potion WASM vs WebGPU (WSL Node, 2026-09-17): **GPU медленнее** — 84 vs 115 texts/s (`webgpu/cpu = 0.73`). Браузерный WASM ≈ Node `cpu`. На WSL WebGPU похож на software/Mesa, не на дискретную GPU. Детали: `docs/rag-embed-bench.md`, `scratch/embed-bench/device-results.json`.
 
 Обновлённый приоритет:
 
@@ -119,9 +119,10 @@ Near-dedup через MinHash можно добавить позже. Есть �
 
 1. `prepareForImportedChat(chatId)` — повторный импорт того же чата не чистит Dexie.
 2. Content-hash delta cache (`modelKey + conv-v1 + text`) + `commitChunkIndex` / streaming `upsertChunkRows`.
-3. Model2Vec сначала пробует WASM, затем WebGPU.
+3. Model2Vec сначала пробует WASM, затем WebGPU (подтверждено замером: на WSL WebGPU медленнее CPU).
 4. Conversation chunking: author burst (3 мин) + reply-aware + exact-dedup текста.
 5. Измеритель `scripts/measure-rag-corpus.mts` считает units / collapsed dups / reply share.
+6. Device-bench `scratch/embed-bench/device-bench.mts` (cpu vs webgpu).
 
 Ещё не сделано:
 

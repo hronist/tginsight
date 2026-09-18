@@ -15,6 +15,12 @@ out/
 data/
 *.json.bak
 
+# Local benches / model caches (large, throwaway)
+scratch/
+
+# Cursor / editor local config
+.cursor/
+
 # OS / IDE
 .DS_Store
 Thumbs.db
