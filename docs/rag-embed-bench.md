@@ -1,6 +1,6 @@
 # Embed / RAG bench notes (2026-09-11)
 
-Локальные замеры и решения по in-browser RAG для TG Insight.  
+Локальные замеры и решения по in-browser RAG для tginsight.  
 Прототип throwaway: `scratch/embed-bench/`. Перезапуск:
 
 ```bash

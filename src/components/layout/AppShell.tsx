@@ -51,7 +51,7 @@ function TopBar({
           <MessageCircle className="size-[18px]" />
         </div>
         <span className="truncate text-sm font-extrabold tracking-[0.13em]">
-          TG<span className="text-primary">INSIGHT</span>
+          tg<span className="text-primary">insight</span>
         </span>
         {meta && (
           <Badge variant="outline" className="ml-1 hidden max-w-48 gap-1.5 sm:inline-flex">

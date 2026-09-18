@@ -71,7 +71,7 @@ export async function streamChatCompletion(args: StreamChatArgs): Promise<void> 
         Authorization: `Bearer ${settings.apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "",
-        "X-Title": "TG Chat Intelligence",
+        "X-Title": "tginsight",
       },
       body: JSON.stringify({
         model: settings.model,

@@ -29,7 +29,7 @@ class TgChatDb extends Dexie {
   meta!: EntityTable<MetaRow, "key">;
 
   constructor() {
-    super("tg-chat-intelligence");
+    super("tginsight");
     this.version(1).stores({
       chunks: "id, month",
       queryHistory: "++id, createdAt",

@@ -1,4 +1,4 @@
-# TG Insight
+# tginsight
 
 **Локальная аналитика Telegram-чатов:** фильтры, контекст диалогов и RAG-поиск прямо в браузере. Экспорт не уходит на сервер — эмбеддинги считаются на клиенте, к LLM (по желанию) отправляются только найденные фрагменты.
 
@@ -66,7 +66,7 @@ scripts/       утилиты измерения корпуса
 public/        статика
 ```
 
-Подробное ТЗ: [`docs/tg-chat-intelligence-tz.md`](docs/tg-chat-intelligence-tz.md)  
+Подробное ТЗ: [`docs/tginsight-tz.md`](docs/tginsight-tz.md)  
 Сценарии RAG / кеш / chunking: [`docs/rag-discourse-scenarios.md`](docs/rag-discourse-scenarios.md)  
 Замеры эмбеддингов: [`docs/rag-embed-bench.md`](docs/rag-embed-bench.md)
 

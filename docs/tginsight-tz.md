@@ -1,5 +1,5 @@
 # Техническое задание (ТЗ)
-## Разработка веб-приложения "TG Chat Intelligence"
+## Разработка веб-приложения "tginsight"
 
 **Стек технологий:** Next.js (App Router), TypeScript, Tailwind CSS.  
 **Язык интерфейса:** English.  

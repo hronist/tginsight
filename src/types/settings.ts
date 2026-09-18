@@ -35,4 +35,4 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   maxContextTokens: 8000,
 };
 
-export const AI_SETTINGS_STORAGE_KEY = "tg-chat-intelligence:ai-settings";
+export const AI_SETTINGS_STORAGE_KEY = "tginsight:ai-settings";
