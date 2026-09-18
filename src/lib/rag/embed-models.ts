@@ -3,6 +3,8 @@ export type EmbedModelKey = "e5-small" | "minilm" | "potion-multi";
 export type EmbedModelSpec = {
   key: EmbedModelKey;
   label: string;
+  /** Short tradeoff hint for settings UI. */
+  hint: string;
   hfId: string;
   dtype: "q8" | "fp32";
   kind: "pipeline" | "model2vec";
@@ -17,6 +19,7 @@ export const EMBED_MODELS: Record<EmbedModelKey, EmbedModelSpec> = {
   "e5-small": {
     key: "e5-small",
     label: "E5 small (multi)",
+    hint: "лучше качество RU · медленнее",
     hfId: "Xenova/multilingual-e5-small",
     dtype: "q8",
     kind: "pipeline",
@@ -27,6 +30,7 @@ export const EMBED_MODELS: Record<EmbedModelKey, EmbedModelSpec> = {
   minilm: {
     key: "minilm",
     label: "MiniLM L6",
+    hint: "компактная · слабо на RU",
     hfId: "Xenova/all-MiniLM-L6-v2",
     dtype: "q8",
     kind: "pipeline",
@@ -37,6 +41,7 @@ export const EMBED_MODELS: Record<EmbedModelKey, EmbedModelSpec> = {
   "potion-multi": {
     key: "potion-multi",
     label: "Potion multi 128M",
+    hint: "быстрый батчинг · качество слабее E5",
     hfId: "minishlab/potion-multilingual-128M",
     dtype: "fp32",
     kind: "model2vec",

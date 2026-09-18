@@ -1,9 +1,14 @@
+import type { EmbedDevicePreference } from "@/lib/rag/embed-device";
 import type { EmbedModelKey } from "@/lib/rag/embed-models";
 
 export type EmbedDevice = "webgpu" | "wasm";
 
 export type EmbedWorkerRequest =
-  | { type: "load-model"; modelKey: EmbedModelKey }
+  | {
+      type: "load-model";
+      modelKey: EmbedModelKey;
+      devicePreference?: EmbedDevicePreference;
+    }
   | {
       type: "embed-batch";
       items: { id: string; text: string }[];

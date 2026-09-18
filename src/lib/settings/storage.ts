@@ -1,3 +1,4 @@
+import { normalizeEmbedDevice } from "@/lib/rag/embed-device";
 import { getEmbedModel } from "@/lib/rag/embed-models";
 import type { AiSettings } from "@/types/settings";
 import { AI_SETTINGS_STORAGE_KEY, DEFAULT_AI_SETTINGS } from "@/types/settings";
@@ -10,6 +11,7 @@ export function loadAiSettings(): AiSettings {
     const parsed = JSON.parse(raw) as Partial<AiSettings>;
     const merged = { ...DEFAULT_AI_SETTINGS, ...parsed };
     merged.embedModel = getEmbedModel(parsed.embedModel).key;
+    merged.embedDevice = normalizeEmbedDevice(parsed.embedDevice);
     return merged;
   } catch {
     return DEFAULT_AI_SETTINGS;

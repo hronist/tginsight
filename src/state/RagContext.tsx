@@ -16,6 +16,8 @@ import {
   getEmbedModel,
   type EmbedModelKey,
 } from "@/lib/rag/embed-models";
+import { embedDeviceLabel } from "@/lib/rag/embed-device";
+import type { EmbedDevice } from "@/workers/embed-protocol";
 import {
   monthsFromCriteria,
 } from "@/lib/rag/corpus-scope";
@@ -130,6 +132,8 @@ type RagContextValue = {
   status: RagIndexStatus;
   indexCount: number;
   modelReady: boolean;
+  /** Last successful embed backend after loadModel. */
+  activeEmbedDevice: EmbedDevice | null;
   modelBanner: boolean;
   modelBannerMb: number;
   dismissModelBanner: () => void;
@@ -161,6 +165,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const clientRef = useRef<EmbedWorkerClient | null>(null);
   const [status, setStatus] = useState<RagIndexStatus>({ kind: "absent" });
   const [modelReady, setModelReady] = useState(false);
+  const [activeEmbedDevice, setActiveEmbedDevice] = useState<EmbedDevice | null>(
+    null,
+  );
   const [modelBanner, setModelBanner] = useState(false);
   const [modelBannerMb, setModelBannerMb] = useState(
     () => getEmbedModel(loadAiSettings().embedModel).approxDownloadMb,
@@ -235,8 +242,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      onModelReady: () => {
+      onModelReady: (device) => {
         setModelReady(true);
+        setActiveEmbedDevice(device);
       },
       onError: (message) => {
         setError(message);
@@ -327,11 +335,13 @@ export function RagProvider({ children }: { children: ReactNode }) {
           label: `Загрузка ${model.label} (~${model.approxDownloadMb} МБ)…`,
         });
 
-        await client.loadModel(modelKey);
+        await client.loadModel(modelKey, {
+          devicePreference: settings.embedDevice,
+        });
         setModelBanner(false);
         const embedBatch =
           client.device === "webgpu" ? EMBED_BATCH_WEBGPU : EMBED_BATCH_WASM;
-        const deviceLabel = client.device === "webgpu" ? "WebGPU" : "WASM";
+        const deviceLabel = embedDeviceLabel(client.device);
         setStatus({
           kind: "building",
           current: 0,
@@ -479,7 +489,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
       abortRef.current = abort;
 
       try {
-        await client.loadModel(modelKey);
+        await client.loadModel(modelKey, {
+          devicePreference: settings.embedDevice,
+        });
         setModelBanner(false);
         const queryEmbedding = await client.embedQuery(trimmed);
         const ranked = await searchChunks(queryEmbedding, TOP_K);
@@ -574,6 +586,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       status: effectiveStatus,
       indexCount,
       modelReady,
+      activeEmbedDevice,
       modelBanner,
       modelBannerMb,
       dismissModelBanner,
@@ -596,6 +609,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       effectiveStatus,
       indexCount,
       modelReady,
+      activeEmbedDevice,
       modelBanner,
       modelBannerMb,
       dismissModelBanner,

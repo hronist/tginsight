@@ -1,4 +1,8 @@
 import type { EmbedModelKey } from "@/lib/rag/embed-models";
+import {
+  DEFAULT_EMBED_DEVICE,
+  type EmbedDevicePreference,
+} from "@/lib/rag/embed-device";
 import type {
   EmbedDevice,
   EmbedWorkerProgress,
@@ -23,6 +27,7 @@ export class EmbedWorkerClient {
   private pendingQueries = new Map<string, PendingQuery>();
   private modelReady = false;
   private loadedModelKey: EmbedModelKey | null = null;
+  private loadedDevicePreference: EmbedDevicePreference | null = null;
   private modelPromise: Promise<void> | null = null;
   private activeDevice: EmbedDevice = "wasm";
 
@@ -91,20 +96,30 @@ export class EmbedWorkerClient {
 
   async loadModel(
     modelKey: EmbedModelKey,
-    options?: { timeoutMs?: number },
+    options?: {
+      timeoutMs?: number;
+      devicePreference?: EmbedDevicePreference;
+    },
   ): Promise<void> {
-    if (this.modelReady && this.loadedModelKey === modelKey) return;
-    if (this.modelPromise && this.loadedModelKey === modelKey) {
+    const devicePreference =
+      options?.devicePreference ?? DEFAULT_EMBED_DEVICE;
+    const sameLoad =
+      this.loadedModelKey === modelKey &&
+      this.loadedDevicePreference === devicePreference;
+
+    if (this.modelReady && sameLoad) return;
+    if (this.modelPromise && sameLoad) {
       return this.modelPromise;
     }
 
-    if (this.loadedModelKey !== modelKey) {
+    if (!sameLoad) {
       this.modelReady = false;
       this.modelPromise = null;
     }
 
     const worker = this.ensureWorker();
     this.loadedModelKey = modelKey;
+    this.loadedDevicePreference = devicePreference;
     const timeoutMs = options?.timeoutMs ?? 5 * 60 * 1000;
     this.modelPromise = new Promise<void>((resolve, reject) => {
       const prevReady = this.handlers.onModelReady;
@@ -150,6 +165,7 @@ export class EmbedWorkerClient {
       worker.postMessage({
         type: "load-model",
         modelKey,
+        devicePreference,
       } satisfies EmbedWorkerRequest);
     });
     return this.modelPromise;
@@ -202,6 +218,7 @@ export class EmbedWorkerClient {
     this.worker = null;
     this.modelReady = false;
     this.loadedModelKey = null;
+    this.loadedDevicePreference = null;
     this.modelPromise = null;
     this.activeDevice = "wasm";
     this.pendingQueries.clear();

@@ -15,6 +15,11 @@ import {
   type EmbedModelKey,
   type EmbedModelSpec,
 } from "@/lib/rag/embed-models";
+import {
+  DEFAULT_EMBED_DEVICE,
+  resolveEmbedLoadOrder,
+  type EmbedDevicePreference,
+} from "@/lib/rag/embed-device";
 import type {
   EmbedDevice,
   EmbedWorkerRequest,
@@ -42,6 +47,7 @@ type Model2VecBackend = {
 type EmbedBackend = PipelineBackend | Model2VecBackend;
 
 let backend: EmbedBackend | null = null;
+let loadedPreference: EmbedDevicePreference | null = null;
 /** Serialize async handlers — overlapping embed-batch calls corrupt shared model state. */
 let workChain: Promise<void> = Promise.resolve();
 
@@ -51,6 +57,7 @@ function post(message: EmbedWorkerResponse) {
 
 function clearBackend() {
   backend = null;
+  loadedPreference = null;
 }
 
 async function webGpuAvailable(): Promise<boolean> {
@@ -91,18 +98,23 @@ async function webGpuAvailable(): Promise<boolean> {
 
 type LoadAttempt = { device: EmbedDevice };
 
-/** Model2Vec is lookup+mean — WASM often beats WebGPU dispatch on short chats. */
-async function loadAttempts(spec: EmbedModelSpec): Promise<LoadAttempt[]> {
+async function loadAttempts(
+  spec: EmbedModelSpec,
+  preference: EmbedDevicePreference,
+): Promise<LoadAttempt[]> {
   const gpu = await webGpuAvailable();
-  if (spec.kind === "model2vec") {
-    return gpu
-      ? [{ device: "wasm" }, { device: "webgpu" }]
-      : [{ device: "wasm" }];
+  if (preference === "webgpu" && !gpu) {
+    post({
+      type: "progress",
+      stage: "model",
+      current: 0,
+      total: 100,
+      label: "WebGPU недоступен — переключаемся на WASM…",
+    });
   }
-  if (gpu) {
-    return [{ device: "webgpu" }, { device: "wasm" }];
-  }
-  return [{ device: "wasm" }];
+  return resolveEmbedLoadOrder(spec.kind, preference, gpu).map((device) => ({
+    device,
+  }));
 }
 
 function progressCallback(spec: EmbedModelSpec) {
@@ -152,12 +164,21 @@ async function loadModel2VecBackend(
   return { kind: "model2vec", model, tokenizer, spec, device };
 }
 
-async function ensureModel(modelKey: EmbedModelKey) {
+async function ensureModel(
+  modelKey: EmbedModelKey,
+  devicePreference: EmbedDevicePreference = DEFAULT_EMBED_DEVICE,
+) {
   const spec = getEmbedModel(modelKey);
-  if (backend && backend.spec.key === spec.key) return backend;
+  if (
+    backend &&
+    backend.spec.key === spec.key &&
+    loadedPreference === devicePreference
+  ) {
+    return backend;
+  }
 
   clearBackend();
-  const attempts = await loadAttempts(spec);
+  const attempts = await loadAttempts(spec, devicePreference);
   let lastError: unknown;
 
   for (let i = 0; i < attempts.length; i++) {
@@ -176,6 +197,7 @@ async function ensureModel(modelKey: EmbedModelKey) {
         spec.kind === "model2vec"
           ? await loadModel2VecBackend(spec, attempt.device)
           : await loadPipelineBackend(spec, attempt.device);
+      loadedPreference = devicePreference;
       post({ type: "model-ready", device: attempt.device });
       return backend;
     } catch (error) {
@@ -185,12 +207,14 @@ async function ensureModel(modelKey: EmbedModelKey) {
       if (more) {
         const message =
           error instanceof Error ? error.message : "WebGPU недоступен";
+        const next = attempts[i + 1]!;
+        const nextLabel = next.device === "webgpu" ? "WebGPU" : "WASM";
         post({
           type: "progress",
           stage: "model",
           current: 0,
           total: 100,
-          label: `${deviceLabel} не подошёл (${message}). Пробуем WASM…`,
+          label: `${deviceLabel} не подошёл (${message}). Пробуем ${nextLabel}…`,
         });
       }
     }
@@ -256,7 +280,10 @@ async function embedTexts(
 async function handleMessage(msg: EmbedWorkerRequest) {
   switch (msg.type) {
     case "load-model":
-      await ensureModel(msg.modelKey);
+      await ensureModel(
+        msg.modelKey,
+        msg.devicePreference ?? DEFAULT_EMBED_DEVICE,
+      );
       break;
     case "embed-batch": {
       if (!backend) throw new Error("Call load-model before embed-batch");

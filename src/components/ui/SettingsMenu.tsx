@@ -6,10 +6,15 @@ import type { AiSettings } from "@/types/settings";
 import { DEFAULT_AI_SETTINGS } from "@/types/settings";
 import { loadAiSettings, saveAiSettings } from "@/lib/settings/storage";
 import {
+  EMBED_DEVICE_OPTIONS,
+  embedDeviceLabel,
+} from "@/lib/rag/embed-device";
+import {
   getEmbedModel,
   listEmbedModels,
   type EmbedModelKey,
 } from "@/lib/rag/embed-models";
+import { useRag } from "@/state/RagContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +25,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 export function SettingsMenu() {
+  const { activeEmbedDevice } = useRag();
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
   const [hydrated, setHydrated] = useState(false);
@@ -187,10 +193,50 @@ export function SettingsMenu() {
                     >
                       {listEmbedModels().map((m) => (
                         <option key={m.key} value={m.key}>
-                          {m.label} (~{m.approxDownloadMb} MB)
+                          {m.label} · {m.hint} (~{m.approxDownloadMb} MB)
                         </option>
                       ))}
                     </select>
+                    <p className="text-[10px] leading-snug text-muted-foreground">
+                      Смена модели требует пересборки индекса.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs">Устройство эмбеддингов</Label>
+                      {activeEmbedDevice && (
+                        <Badge variant="outline" className="text-[10px]">
+                          сейчас {embedDeviceLabel(activeEmbedDevice)}
+                        </Badge>
+                      )}
+                    </div>
+                    <ToggleGroup
+                      value={[settings.embedDevice]}
+                      onValueChange={(v) => {
+                        const next = v[0] as
+                          | AiSettings["embedDevice"]
+                          | undefined;
+                        if (next) update({ embedDevice: next });
+                      }}
+                      className="w-full"
+                      variant="outline"
+                    >
+                      {EMBED_DEVICE_OPTIONS.map((opt) => (
+                        <ToggleGroupItem
+                          key={opt.value}
+                          value={opt.value}
+                          className="flex-1 text-xs"
+                        >
+                          {opt.label}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                    <p className="text-[10px] leading-snug text-muted-foreground">
+                      WebGPU не всегда быстрее — зависит от GPU и драйвера. Для
+                      Potion часто выгоднее WASM. «Авто» выбирает порядок сам;
+                      при сбое есть fallback.
+                    </p>
                   </div>
 
                   <div className="space-y-1.5">

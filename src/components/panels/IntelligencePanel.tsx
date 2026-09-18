@@ -27,6 +27,7 @@ import {
   monthsFromCriteria,
 } from "@/lib/rag/corpus-scope";
 import { getEmbedModel } from "@/lib/rag/embed-models";
+import { embedDeviceLabel } from "@/lib/rag/embed-device";
 import { loadAiSettings } from "@/lib/settings/storage";
 
 const TOPIC_COLORS = ["bg-orange-400", "bg-primary", "bg-teal-500"] as const;
@@ -45,12 +46,14 @@ export function IntelligencePanel() {
     modelBannerMb,
     dismissModelBanner,
     buildIndex,
+    activeEmbedDevice,
   } = useRag();
 
   const [entireChat, setEntireChat] = useState(false);
   const indexReady = indexCount > 0;
 
-  const embedLabel = getEmbedModel(loadAiSettings().embedModel).label;
+  const embedSettings = loadAiSettings();
+  const embedLabel = getEmbedModel(embedSettings.embedModel).label;
 
   const corpusEstimate = useMemo(() => {
     if (!meta) return 0;
@@ -181,6 +184,9 @@ export function IntelligencePanel() {
             {meta && (
               <p className="text-[10px] text-muted-foreground">
                 Модель: {embedLabel}
+                {activeEmbedDevice
+                  ? ` · ${embedDeviceLabel(activeEmbedDevice)}`
+                  : ""}
               </p>
             )}
             {meta && !indexing && (
