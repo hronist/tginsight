@@ -126,10 +126,10 @@ Near-dedup через MinHash можно добавить позже. Есть �
 
 Ещё не сделано:
 
-- BM25 + RRF (MiniSearch/Orama).
 - Eval Recall@5 на 20–30 запросах.
 
 Сделано после оценки Rust (`docs/rust-embed-eval.md`):
 
 - Transferable `Float32Array` в embed worker (`embed-vectors.ts`, protocol + worker postMessage transfer).
+- BM25 (MiniSearch) + RRF hybrid retrieve (`bm25.ts`, `rrf.ts`, `searchChunks`).
 - Rust-пакет отклонён как primary fix; условие reopen в том же доке.

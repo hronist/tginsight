@@ -3,8 +3,14 @@ import { cosineSimilarity, type RankedChunk } from "@/lib/rag/similarity";
 import type { ChunkDraft } from "@/lib/rag/chunking";
 import { CHUNKER_VERSION } from "@/lib/rag/chunking";
 import { embeddingContentHash } from "@/lib/rag/content-hash";
+import { bm25RankIds, invalidateBm25Cache } from "@/lib/rag/bm25";
+import { reciprocalRankFusion } from "@/lib/rag/rrf";
+
+/** How many candidates each channel contributes before RRF. */
+const HYBRID_CANDIDATE_MULT = 3;
 
 export async function replaceChunkIndex(rows: ChunkRow[]): Promise<void> {
+  invalidateBm25Cache();
   await db.transaction("rw", db.chunks, db.meta, async () => {
     await db.chunks.clear();
     if (rows.length > 0) await db.chunks.bulkPut(rows);
@@ -24,6 +30,7 @@ export async function replaceChunkIndex(rows: ChunkRow[]): Promise<void> {
  * Prefer this for rebuilds so Dexie stays consistent without a full blank slate mid-run.
  */
 export async function commitChunkIndex(rows: ChunkRow[]): Promise<void> {
+  invalidateBm25Cache();
   const keep = new Set(rows.map((r) => r.id));
   await db.transaction("rw", db.chunks, db.meta, async () => {
     if (rows.length > 0) await db.chunks.bulkPut(rows);
@@ -44,6 +51,7 @@ export async function commitChunkIndex(rows: ChunkRow[]): Promise<void> {
 /** Append/overwrite a batch during streaming build (no stale delete yet). */
 export async function upsertChunkRows(rows: ChunkRow[]): Promise<void> {
   if (rows.length === 0) return;
+  invalidateBm25Cache();
   await db.chunks.bulkPut(rows);
 }
 
@@ -95,17 +103,52 @@ export async function setMetaRagMonthRange(
 export async function searchChunks(
   queryEmbedding: ArrayLike<number>,
   topK: number,
+  queryText?: string,
 ): Promise<RankedChunk[]> {
   const all = await db.chunks.toArray();
-  const ranked = all
+  if (all.length === 0) return [];
+
+  const denseSorted = all
     .map((chunk) => ({
       id: chunk.id,
       text: chunk.text,
       messageIds: chunk.messageIds,
       score: cosineSimilarity(queryEmbedding, chunk.embedding),
     }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
+    .sort((a, b) => b.score - a.score);
+
+  const candidateN = Math.min(
+    all.length,
+    Math.max(topK * HYBRID_CANDIDATE_MULT, topK),
+  );
+  const denseIds = denseSorted.slice(0, candidateN).map((c) => c.id);
+
+  const q = queryText?.trim() ?? "";
+  if (!q) {
+    return denseSorted.slice(0, topK);
+  }
+
+  const indexedAt = await getIndexedAt();
+  const lexicalIds = bm25RankIds(
+    all.map((c) => ({ id: c.id, text: c.text })),
+    q,
+    candidateN,
+    `${indexedAt ?? 0}:${all.length}`,
+  );
+
+  if (lexicalIds.length === 0) {
+    return denseSorted.slice(0, topK);
+  }
+
+  const fused = reciprocalRankFusion([denseIds, lexicalIds]);
+  const byId = new Map(denseSorted.map((c) => [c.id, c]));
+  const ranked: RankedChunk[] = [];
+  for (const { id, score } of fused) {
+    const row = byId.get(id);
+    if (!row) continue;
+    ranked.push({ ...row, score });
+    if (ranked.length >= topK) break;
+  }
   return ranked;
 }
 

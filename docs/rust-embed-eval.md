@@ -59,8 +59,8 @@ Census текущего bottleneck (`docs/rag-embed-bench.md`, `src/workers/embe
 3. Potion WASM-first (на WSL WebGPU медленнее CPU) — сделано.
 4. Conversation chunking + exact-dedup — сделано.
 5. **Transferable `Float32Array` в embed worker** — сделано (`src/lib/rag/embed-vectors.ts`).
-6. BM25 + RRF (MiniSearch/Orama) — следующий шаг.
-7. Eval Recall@5 на 20–30 запросах.
+6. BM25 + RRF (MiniSearch/Orama) — сделано (`src/lib/rag/bm25.ts`, `rrf.ts`).
+7. Eval Recall@5 на 20–30 запросах — следующий шаг.
 8. Rust/WASM Model2Vec — только после профиля (см. выше).
 
 ## Verify

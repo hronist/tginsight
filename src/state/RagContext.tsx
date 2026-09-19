@@ -497,7 +497,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
         });
         setModelBanner(false);
         const queryEmbedding = await client.embedQuery(trimmed);
-        const ranked = await searchChunks(queryEmbedding, TOP_K);
+        const ranked = await searchChunks(queryEmbedding, TOP_K, trimmed);
         if (ranked.length === 0) {
           throw new Error("В локальном индексе нет чанков.");
         }
