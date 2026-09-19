@@ -11,7 +11,7 @@ import type {
 } from "@/workers/embed-protocol";
 
 type PendingQuery = {
-  resolve: (embedding: number[]) => void;
+  resolve: (embedding: Float32Array) => void;
   reject: (error: Error) => void;
 };
 
@@ -175,7 +175,7 @@ export class EmbedWorkerClient {
     items: { id: string; text: string }[],
     batchIndex: number,
     batchTotal: number,
-  ): Promise<{ id: string; embedding: number[] }[]> {
+  ): Promise<{ id: string; embedding: Float32Array }[]> {
     if (this.batchResolver) {
       return Promise.reject(new Error("Embed batch already in flight"));
     }
@@ -200,7 +200,7 @@ export class EmbedWorkerClient {
     });
   }
 
-  embedQuery(text: string): Promise<number[]> {
+  embedQuery(text: string): Promise<Float32Array> {
     const worker = this.ensureWorker();
     const requestId = `q-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return new Promise((resolve, reject) => {

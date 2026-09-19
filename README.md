@@ -68,7 +68,8 @@ public/        статика
 
 Подробное ТЗ: [`docs/tginsight-tz.md`](docs/tginsight-tz.md)  
 Сценарии RAG / кеш / chunking: [`docs/rag-discourse-scenarios.md`](docs/rag-discourse-scenarios.md)  
-Замеры эмбеддингов: [`docs/rag-embed-bench.md`](docs/rag-embed-bench.md)
+Замеры эмбеддингов: [`docs/rag-embed-bench.md`](docs/rag-embed-bench.md)  
+Почему не Rust (оценка 2026-09-19): [`docs/rust-embed-eval.md`](docs/rust-embed-eval.md)
 
 ## Статус
 

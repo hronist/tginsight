@@ -93,7 +93,7 @@ export async function setMetaRagMonthRange(
 }
 
 export async function searchChunks(
-  queryEmbedding: number[],
+  queryEmbedding: ArrayLike<number>,
   topK: number,
 ): Promise<RankedChunk[]> {
   const all = await db.chunks.toArray();
@@ -102,7 +102,7 @@ export async function searchChunks(
       id: chunk.id,
       text: chunk.text,
       messageIds: chunk.messageIds,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding as number[]),
+      score: cosineSimilarity(queryEmbedding, chunk.embedding),
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
