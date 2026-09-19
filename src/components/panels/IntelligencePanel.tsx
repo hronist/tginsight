@@ -4,23 +4,17 @@ import { useMemo, useState } from "react";
 import {
   Activity,
   Clock3,
+  Database,
   History,
   PanelRight,
+  RefreshCcw,
   Sparkles,
   Users,
-  Zap,
 } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
 import { useRag } from "@/state/RagContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
   estimateCorpusFromMonthCounts,
@@ -29,8 +23,17 @@ import {
 import { getEmbedModel } from "@/lib/rag/embed-models";
 import { embedDeviceLabel } from "@/lib/rag/embed-device";
 import { loadAiSettings } from "@/lib/settings/storage";
+import { Label } from "@/components/ui/label";
 
 const TOPIC_COLORS = ["bg-orange-400", "bg-primary", "bg-teal-500"] as const;
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Label className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase">
+      {children}
+    </Label>
+  );
+}
 
 export function IntelligencePanel() {
   const { meta, authors, hitCount, criteria, months, monthCounts } = useChat();
@@ -99,153 +102,172 @@ export function IntelligencePanel() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <div className="grid grid-cols-2 gap-2">
-          <Card size="sm">
-            <CardHeader className="pb-1">
-              <CardDescription className="flex items-center gap-1 text-[10px]">
-                <Activity className="size-3" /> Сообщения
-              </CardDescription>
-              <CardTitle className="text-lg tabular-nums">
-                {hitCount.toLocaleString()}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-          <Card size="sm">
-            <CardHeader className="pb-1">
-              <CardDescription className="flex items-center gap-1 text-[10px]">
-                <Users className="size-3" /> Авторы
-              </CardDescription>
-              <CardTitle className="text-lg tabular-nums">
-                {authors.length.toLocaleString()}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-        </div>
-
-        {meta && topAuthors.length > 0 && (
-          <Card size="sm">
-            <CardHeader className="pb-2">
-              <div className="flex items-center gap-2">
-                <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                  <Sparkles className="size-3.5" />
-                </div>
-                <CardTitle className="text-xs">Топ авторов</CardTitle>
-                {indexCount > 0 && <Badge className="ml-auto">RAG</Badge>}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2 text-[10px]">
-              <p className="text-muted-foreground">
-                В экспорте <b className="text-foreground">{authors.length}</b> авторов.
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-border bg-card p-3 shadow-sm transition-all hover:shadow-md">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                <Activity className="size-3 text-primary/70" /> Сообщения
               </p>
-              {topAuthors.map((a, i) => (
-                <div key={a.fromId} className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-sm",
-                      TOPIC_COLORS[i % TOPIC_COLORS.length],
-                    )}
+              <p className="mt-2 text-xl font-bold tracking-tight tabular-nums text-foreground">
+                {hitCount.toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-3 shadow-sm transition-all hover:shadow-md">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                <Users className="size-3 text-primary/70" /> Авторы
+              </p>
+              <p className="mt-2 text-xl font-bold tracking-tight tabular-nums text-foreground">
+                {authors.length.toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <SectionLabel>Топ авторов</SectionLabel>
+              <span className="text-[10px] font-medium text-muted-foreground/60">
+                {authors.length} всего
+              </span>
+            </div>
+            <div className="space-y-2">
+              {topAuthors.map((a) => (
+                <div
+                  key={a.fromId}
+                  className="group relative overflow-hidden rounded-xl border border-border/60 bg-card/40 p-2.5 transition-all hover:bg-card hover:shadow-sm"
+                >
+                  <div
+                    className="absolute top-0 left-0 h-full bg-primary/5 transition-all group-hover:bg-primary/8"
+                    style={{ width: `${(a.count / totalAuthorMsgs) * 100}%` }}
                   />
-                  <span className="min-w-0 flex-1 truncate">{a.from}</span>
-                  <span className="text-muted-foreground tabular-nums">
-                    {Math.round((a.count / totalAuthorMsgs) * 100)}%
-                  </span>
+                  <div className="relative flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="size-6 rounded bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                        {a.from?.[0] ?? "?"}
+                      </div>
+                      <span className="truncate text-xs font-semibold text-foreground/90">
+                        {a.from}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-bold tabular-nums text-muted-foreground">
+                      {a.count}
+                    </span>
+                  </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
-        )}
-
-        <Card size="sm" className="ring-primary/20">
-          <CardHeader className="flex-row items-center gap-2 space-y-0 pb-2">
-            <div className="flex size-6 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <Zap className="size-3.5" />
             </div>
-            <div className="min-w-0 flex-1">
-              <CardTitle className="text-xs">RAG-индекс</CardTitle>
-              <CardDescription className="text-[10px]">
-                {indexReady
-                  ? `${indexCount.toLocaleString()} чанков · запрос — в центре`
-                  : meta
-                    ? "индекс не собран"
-                    : "нет данных"}
-              </CardDescription>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="border-b border-border/60 bg-muted/20 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Database className="size-4 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-xs font-bold tracking-tight text-foreground">RAG-индекс</h3>
+                  <p className="text-[10px] font-medium text-muted-foreground/70 truncate">
+                    {indexReady
+                      ? `${indexCount.toLocaleString()} чанков · поиск готов`
+                      : meta
+                        ? "индекс не собран"
+                        : "нет данных"}
+                  </p>
+                </div>
+              </div>
             </div>
-          </CardHeader>
 
-          <CardContent className="space-y-2">
-            {meta && !indexReady && !indexing && (
-              <p className="rounded-md border-l-2 border-muted-foreground/40 bg-muted/40 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                Индекс строится по месяцам периода фильтра слева, не по всему чату
-                (если не включён «Весь чат»). После сборки спрашивайте в строке
-                RAG · AI над лентой.
-              </p>
-            )}
-            {meta && (
-              <p className="text-[10px] text-muted-foreground">
-                Модель: {embedLabel}
-                {activeEmbedDevice
-                  ? ` · ${embedDeviceLabel(activeEmbedDevice)}`
-                  : ""}
-              </p>
-            )}
-            {meta && !indexing && (
-              <p className="text-[10px] text-muted-foreground tabular-nums">
-                ≈ {corpusEstimate.toLocaleString()} сообщений в индексе
-              </p>
-            )}
-            {meta && (
-              <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <input
-                  type="checkbox"
-                  className="size-3.5 accent-primary"
-                  checked={entireChat}
-                  disabled={indexing || asking}
-                  onChange={(e) => setEntireChat(e.target.checked)}
-                />
-                Весь чат
-              </label>
-            )}
-            {modelBanner && (
-              <p className="rounded-md border-l-2 border-primary bg-accent/60 px-2 py-1.5 text-[10px] leading-relaxed">
-                Загрузка модели эмбеддингов (~{modelBannerMb} MB).
-                <Button
-                  variant="link"
-                  className="h-auto p-0 text-[10px]"
-                  onClick={dismissModelBanner}
-                >
-                  Скрыть
-                </Button>
-              </p>
-            )}
-            {indexing && progressLabel && (
-              <p className="rounded-md border-l-2 border-primary bg-accent/60 px-2 py-1.5 text-[10px] leading-relaxed break-words whitespace-normal">
-                {progressLabel}
-              </p>
-            )}
-            {error && (
-              <p className="rounded-md border-l-2 border-destructive bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
-                {error}
-              </p>
-            )}
+            <div className="p-4 space-y-4">
+              {meta && !indexReady && !indexing && (
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                  <p className="text-[10px] leading-relaxed text-foreground/80 font-medium italic">
+                    Индекс строится по периоду фильтра слева. После сборки
+                    спрашивайте в строке поиска AI над лентой.
+                  </p>
+                </div>
+              )}
 
-            <Button
-              className="w-full"
-              variant="secondary"
-              disabled={!meta || indexing || asking}
-              onClick={() => void buildIndex({ entireChat })}
-            >
-              {indexing
-                ? "Индексация…"
-                : indexReady
-                  ? `Пересобрать · ${indexCount.toLocaleString()}`
-                  : "Собрать RAG-индекс"}
-            </Button>
-          </CardContent>
-        </Card>
+              {meta && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-[11px] font-medium">
+                    <span className="text-muted-foreground/80">Модель</span>
+                    <Badge variant="outline" className="h-5 px-2 text-[10px] font-bold border-primary/20 text-primary/80 bg-primary/5">
+                      {embedLabel}
+                      {activeEmbedDevice
+                        ? ` · ${embedDeviceLabel(activeEmbedDevice)}`
+                        : ""}
+                    </Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-[11px] font-medium">
+                    <span className="text-muted-foreground/80">Объем</span>
+                    <span className="tabular-nums text-foreground/90 font-bold">
+                      ≈ {corpusEstimate.toLocaleString()} сообщ.
+                    </span>
+                  </div>
+
+                  <label className="group flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 p-2 cursor-pointer transition-all hover:bg-muted/40 hover:border-primary/20">
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-border text-primary accent-primary transition-all group-hover:scale-110"
+                      checked={entireChat}
+                      disabled={indexing || asking}
+                      onChange={(e) => setEntireChat(e.target.checked)}
+                    />
+                    <span className="text-[11px] font-bold text-foreground/70 group-hover:text-foreground transition-colors uppercase tracking-wider">Весь чат</span>
+                  </label>
+                </div>
+              )}
+
+              {modelBanner && (
+                <div className="animate-in fade-in slide-in-from-top-1 rounded-xl border border-amber-200/50 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/20 p-3">
+                  <p className="text-[10px] leading-relaxed text-amber-800 dark:text-amber-400 font-medium">
+                    Загрузка модели эмбеддингов (~{modelBannerMb} MB).
+                    <Button
+                      variant="link"
+                      className="h-auto p-0 ml-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 underline underline-offset-2"
+                      onClick={dismissModelBanner}
+                    >
+                      Скрыть
+                    </Button>
+                  </p>
+                </div>
+              )}
+
+              <Button
+                className={cn(
+                  "w-full h-10 rounded-xl font-bold transition-all shadow-lg",
+                  indexReady 
+                    ? "bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20 border border-transparent shadow-none" 
+                    : "bg-primary text-primary-foreground shadow-primary/20"
+                )}
+                size="sm"
+                disabled={!meta || indexing || asking}
+                onClick={() => buildIndex({ entireChat })}
+              >
+                {indexing ? (
+                  <>
+                    <RefreshCcw className="mr-2 size-3.5 animate-spin" />
+                    Собираем…
+                  </>
+                ) : indexReady ? (
+                  "Пересобрать индекс"
+                ) : (
+                  "Собрать RAG-индекс"
+                )}
+              </Button>
+
+              {indexCount > 0 && !indexing && (
+                <p className="text-center text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest">
+                  готов к работе
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
 
         {history.length > 0 && (
-          <>
+          <div className="space-y-3">
             <div className="flex items-center gap-2 text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
               <History className="size-3.5" />
               История запросов
@@ -254,16 +276,16 @@ export function IntelligencePanel() {
               <button
                 key={item.id}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-2 py-1.5 text-left text-[10px]"
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-2 py-1.5 text-left text-[10px] transition-colors hover:bg-accent"
                 onClick={() => void openHistoryAsk(item)}
               >
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {item.prompt}
                 </span>
-                <Clock3 className="size-3 shrink-0 text-muted-foreground" />
+                <Clock3 className="size-3 shrink-0 text-muted-foreground/60" />
               </button>
             ))}
-          </>
+          </div>
         )}
       </div>
     </div>

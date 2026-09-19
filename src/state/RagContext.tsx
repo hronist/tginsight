@@ -147,7 +147,7 @@ type RagContextValue = {
   openAskView: (view: AskView) => void;
   openHistoryAsk: (item: QueryHistoryRow) => Promise<void>;
   buildIndex: (options?: { entireChat?: boolean }) => Promise<void>;
-  ask: (prompt: string) => Promise<void>;
+  ask: (prompt: string, mode?: "retrieve" | "llm") => Promise<void>;
   refreshHistory: () => Promise<void>;
 };
 
@@ -403,7 +403,8 @@ export function RagProvider({ children }: { children: ReactNode }) {
           label: `Эмбеддинг ${needEmbed.length.toLocaleString()} новых / ${drafts.length.toLocaleString()} чанков · кеш ${reusedVectors.length.toLocaleString()} · ${deviceLabel}`,
         });
 
-        const freshVectors: { id: string; embedding: number[] }[] = [];
+        const freshVectors: { id: string; embedding: Float32Array | number[] }[] =
+          [];
         let embedBatchIndex = 0;
         for (let i = 0; i < needEmbed.length; i += embedBatch) {
           const slice = needEmbed.slice(i, i + embedBatch);
@@ -453,7 +454,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
   );
 
   const ask = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, forceMode?: "retrieve" | "llm") => {
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const client = clientRef.current;
@@ -476,11 +477,13 @@ export function RagProvider({ children }: { children: ReactNode }) {
       setAsking(true);
       const generation = ++askGenerationRef.current;
       const hasKey = Boolean(settings.apiKey.trim());
+      const mode = forceMode ?? (hasKey ? "llm" : "retrieve");
+
       setAskView({
         prompt: trimmed,
         answer: "",
         hits: [],
-        mode: hasKey ? "llm" : "retrieve",
+        mode,
       });
       setModelBannerMb(getEmbedModel(modelKey).approxDownloadMb);
       setModelBanner(true);
@@ -511,7 +514,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
           getMessagesByIds,
         );
 
-        if (!hasKey) {
+        if (mode === "retrieve") {
           if (askGenerationRef.current === generation) {
             setAskView({
               prompt: trimmed,
