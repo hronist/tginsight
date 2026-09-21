@@ -1,7 +1,7 @@
 {
   "name": "tginsight",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Client-side Telegram chat analytics with local RAG and BYOK LLM (tginsight)",
   "license": "MIT",
   "scripts": {
