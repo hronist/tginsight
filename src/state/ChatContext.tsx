@@ -240,9 +240,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       criteriaRef.current = override;
       setCriteriaState(override);
     }
-    setHits([]);
-    setHitCount(0);
-    setChainMessageCount(0);
+    // Keep previous hits until new results arrive — avoids stream flicker.
     setIsBusy(true);
     setProgress({
       type: "progress",

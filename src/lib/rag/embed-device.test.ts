@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  normalizeEmbedDevice,
-  resolveEmbedLoadOrder,
-} from "@/lib/rag/embed-device";
+import { resolveEmbedLoadOrder } from "@/lib/rag/embed-device";
 
 describe("resolveEmbedLoadOrder", () => {
   it("forces WASM only when preference is wasm", () => {
@@ -35,10 +32,12 @@ describe("resolveEmbedLoadOrder", () => {
   });
 });
 
-describe("normalizeEmbedDevice", () => {
-  it("defaults unknown values to auto", () => {
-    expect(normalizeEmbedDevice(undefined)).toBe("auto");
-    expect(normalizeEmbedDevice("cuda")).toBe("auto");
-    expect(normalizeEmbedDevice("webgpu")).toBe("webgpu");
+describe("embedDeviceLabel", () => {
+  it("shows WASM thread count when provided", async () => {
+    const { embedDeviceLabel } = await import("@/lib/rag/embed-device");
+    expect(embedDeviceLabel("wasm")).toBe("WASM");
+    expect(embedDeviceLabel("wasm", { wasmThreads: 1 })).toBe("WASM · 1 пот.");
+    expect(embedDeviceLabel("wasm", { wasmThreads: 4 })).toBe("WASM · 4 пот.");
+    expect(embedDeviceLabel("webgpu", { wasmThreads: 4 })).toBe("WebGPU");
   });
 });

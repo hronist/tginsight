@@ -20,6 +20,7 @@ import { embedDeviceLabel } from "@/lib/rag/embed-device";
 import type { EmbedDevice } from "@/workers/embed-protocol";
 import {
   monthsFromCriteria,
+  scopesMatch,
 } from "@/lib/rag/corpus-scope";
 import {
   indexChunkCount,
@@ -36,6 +37,7 @@ import {
   getIndexCount,
   getIndexedAt,
   getMetaEmbedModel,
+  getMetaRagMonthRange,
   listQueryHistory,
   loadReusableEmbeddings,
   searchChunks,
@@ -134,6 +136,8 @@ type RagContextValue = {
   modelReady: boolean;
   /** Last successful embed backend after loadModel. */
   activeEmbedDevice: EmbedDevice | null;
+  /** WASM thread pool size after last load (null if WebGPU / unknown). */
+  activeWasmThreads: number | null;
   modelBanner: boolean;
   modelBannerMb: number;
   dismissModelBanner: () => void;
@@ -147,8 +151,10 @@ type RagContextValue = {
   openAskView: (view: AskView) => void;
   openHistoryAsk: (item: QueryHistoryRow) => Promise<void>;
   buildIndex: (options?: { entireChat?: boolean }) => Promise<void>;
-  ask: (prompt: string) => Promise<void>;
+  ask: (prompt: string, mode?: "retrieve" | "llm") => Promise<void>;
   refreshHistory: () => Promise<void>;
+  /** True when an index exists but was built for a different period than current filters. */
+  indexStale: boolean;
 };
 
 const RagContext = createContext<RagContextValue | null>(null);
@@ -168,6 +174,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const [activeEmbedDevice, setActiveEmbedDevice] = useState<EmbedDevice | null>(
     null,
   );
+  const [activeWasmThreads, setActiveWasmThreads] = useState<number | null>(
+    null,
+  );
   const [modelBanner, setModelBanner] = useState(false);
   const [modelBannerMb, setModelBannerMb] = useState(
     () => getEmbedModel(loadAiSettings().embedModel).approxDownloadMb,
@@ -176,6 +185,10 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<QueryHistoryRow[]>([]);
   const [askView, setAskView] = useState<AskView | null>(null);
+  const [indexedScope, setIndexedScope] = useState<{
+    monthFrom: string | null;
+    monthTo: string | null;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const askGenerationRef = useRef(0);
 
@@ -226,6 +239,25 @@ export function RagProvider({ children }: { children: ReactNode }) {
       ? (effectiveStatus.label ?? null)
       : null;
 
+  const desiredScope = useMemo(
+    () =>
+      resolveBuildScope({
+        entireChat: false,
+        dateFrom: criteria.dateFrom,
+        dateTo: criteria.dateTo,
+        months,
+      }),
+    [criteria.dateFrom, criteria.dateTo, months],
+  );
+
+  const indexStale = Boolean(
+    meta &&
+      indexCount > 0 &&
+      !indexing &&
+      indexedScope &&
+      !scopesMatch(desiredScope, indexedScope),
+  );
+
   useEffect(() => {
     const client = new EmbedWorkerClient({
       onProgress: (progress) => {
@@ -242,9 +274,12 @@ export function RagProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      onModelReady: (device) => {
+      onModelReady: (device, meta) => {
         setModelReady(true);
         setActiveEmbedDevice(device);
+        setActiveWasmThreads(
+          device === "wasm" ? (meta?.wasmThreads ?? null) : null,
+        );
       },
       onError: (message) => {
         setError(message);
@@ -272,12 +307,18 @@ export function RagProvider({ children }: { children: ReactNode }) {
       setStatus({ kind: "absent" });
       setHistory([]);
       setError(null);
+      setIndexedScope(null);
       return;
     }
     void (async () => {
       const count = await getIndexCount();
       const builtAt = (await getIndexedAt()) ?? Date.now();
+      const range = await getMetaRagMonthRange();
       if (count > 0) {
+        setIndexedScope({
+          monthFrom: range.monthFrom || null,
+          monthTo: range.monthTo || null,
+        });
         setStatus({
           kind: "ready",
           chatId: meta.chatId,
@@ -285,6 +326,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
           builtAt,
         });
       } else {
+        setIndexedScope(null);
         setStatus({ kind: "absent" });
       }
       setHistory(await listQueryHistory());
@@ -341,7 +383,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setModelBanner(false);
         const embedBatch =
           client.device === "webgpu" ? EMBED_BATCH_WEBGPU : EMBED_BATCH_WASM;
-        const deviceLabel = embedDeviceLabel(client.device);
+        const deviceLabel = embedDeviceLabel(client.device, {
+          wasmThreads: client.wasmThreads,
+        });
         setStatus({
           kind: "building",
           current: 0,
@@ -403,7 +447,8 @@ export function RagProvider({ children }: { children: ReactNode }) {
           label: `Эмбеддинг ${needEmbed.length.toLocaleString()} новых / ${drafts.length.toLocaleString()} чанков · кеш ${reusedVectors.length.toLocaleString()} · ${deviceLabel}`,
         });
 
-        const freshVectors: { id: string; embedding: number[] }[] = [];
+        const freshVectors: { id: string; embedding: Float32Array | number[] }[] =
+          [];
         let embedBatchIndex = 0;
         for (let i = 0; i < needEmbed.length; i += embedBatch) {
           const slice = needEmbed.slice(i, i + embedBatch);
@@ -436,6 +481,10 @@ export function RagProvider({ children }: { children: ReactNode }) {
           scope.monthFrom ?? "",
           scope.monthTo ?? "",
         );
+        setIndexedScope({
+          monthFrom: scope.monthFrom ?? null,
+          monthTo: scope.monthTo ?? null,
+        });
         setStatus({
           kind: "ready",
           chatId: meta.chatId,
@@ -453,7 +502,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
   );
 
   const ask = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, forceMode?: "retrieve" | "llm") => {
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const client = clientRef.current;
@@ -461,6 +510,17 @@ export function RagProvider({ children }: { children: ReactNode }) {
 
       if (effectiveStatus.kind !== "ready" || effectiveStatus.chunkCount === 0) {
         setError("Сначала соберите RAG-индекс");
+        return;
+      }
+
+      const filterScope = resolveBuildScope({
+        entireChat: false,
+        dateFrom: criteria.dateFrom,
+        dateTo: criteria.dateTo,
+        months,
+      });
+      if (indexedScope && !scopesMatch(filterScope, indexedScope)) {
+        setError("Период фильтра изменился — пересоберите RAG-индекс");
         return;
       }
 
@@ -476,11 +536,13 @@ export function RagProvider({ children }: { children: ReactNode }) {
       setAsking(true);
       const generation = ++askGenerationRef.current;
       const hasKey = Boolean(settings.apiKey.trim());
+      const mode = forceMode ?? (hasKey ? "llm" : "retrieve");
+
       setAskView({
         prompt: trimmed,
         answer: "",
         hits: [],
-        mode: hasKey ? "llm" : "retrieve",
+        mode,
       });
       setModelBannerMb(getEmbedModel(modelKey).approxDownloadMb);
       setModelBanner(true);
@@ -494,7 +556,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
         });
         setModelBanner(false);
         const queryEmbedding = await client.embedQuery(trimmed);
-        const ranked = await searchChunks(queryEmbedding, TOP_K);
+        const ranked = await searchChunks(queryEmbedding, TOP_K, trimmed);
         if (ranked.length === 0) {
           throw new Error("В локальном индексе нет чанков.");
         }
@@ -511,7 +573,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
           getMessagesByIds,
         );
 
-        if (!hasKey) {
+        if (mode === "retrieve") {
           if (askGenerationRef.current === generation) {
             setAskView({
               prompt: trimmed,
@@ -578,7 +640,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setAsking(false);
       }
     },
-    [effectiveStatus, getMessagesByIds, refreshHistory],
+    [effectiveStatus, criteria.dateFrom, criteria.dateTo, months, indexedScope, getMessagesByIds, refreshHistory],
   );
 
   const value = useMemo<RagContextValue>(
@@ -587,6 +649,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       indexCount,
       modelReady,
       activeEmbedDevice,
+      activeWasmThreads,
       modelBanner,
       modelBannerMb,
       dismissModelBanner,
@@ -604,12 +667,14 @@ export function RagProvider({ children }: { children: ReactNode }) {
       buildIndex,
       ask,
       refreshHistory,
+      indexStale,
     }),
     [
       effectiveStatus,
       indexCount,
       modelReady,
       activeEmbedDevice,
+      activeWasmThreads,
       modelBanner,
       modelBannerMb,
       dismissModelBanner,
@@ -625,6 +690,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       buildIndex,
       ask,
       refreshHistory,
+      indexStale,
     ],
   );
 

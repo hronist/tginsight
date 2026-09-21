@@ -43,3 +43,23 @@ export function estimateCorpusFromMonthCounts(
   }
   return total;
 }
+
+/** Empty string and null both mean "unbounded". */
+export function normalizeMonthScope(scope: {
+  monthFrom?: string | null;
+  monthTo?: string | null;
+}): { monthFrom: string | null; monthTo: string | null } {
+  return {
+    monthFrom: scope.monthFrom?.trim() || null,
+    monthTo: scope.monthTo?.trim() || null,
+  };
+}
+
+export function scopesMatch(
+  a: { monthFrom?: string | null; monthTo?: string | null },
+  b: { monthFrom?: string | null; monthTo?: string | null },
+): boolean {
+  const na = normalizeMonthScope(a);
+  const nb = normalizeMonthScope(b);
+  return na.monthFrom === nb.monthFrom && na.monthTo === nb.monthTo;
+}

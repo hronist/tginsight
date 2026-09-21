@@ -29,19 +29,23 @@ export type EmbedWorkerProgress = {
 export type EmbedWorkerModelReady = {
   type: "model-ready";
   device: EmbedDevice;
+  /** ORT WASM thread pool size (1 if not cross-origin isolated). */
+  wasmThreads?: number;
+  crossOriginIsolated?: boolean;
 };
 
 export type EmbedWorkerBatchDone = {
   type: "batch-done";
   batchIndex: number;
   batchTotal: number;
-  vectors: { id: string; embedding: number[] }[];
+  /** Per-row Float32Arrays; transferred via postMessage when possible. */
+  vectors: { id: string; embedding: Float32Array }[];
 };
 
 export type EmbedWorkerQueryDone = {
   type: "query-done";
   requestId: string;
-  embedding: number[];
+  embedding: Float32Array;
 };
 
 export type EmbedWorkerError = {

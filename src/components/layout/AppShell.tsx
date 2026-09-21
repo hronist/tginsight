@@ -1,14 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  CircleHelp,
-  Inbox,
-  LayoutDashboard,
-  Menu,
-  MessageCircle,
-  Tags,
-} from "lucide-react";
+import { Menu, MessageCircle } from "lucide-react";
 import { ChatProvider } from "@/state/ChatContext";
 import { RagProvider, useRag } from "@/state/RagContext";
 import { useChat } from "@/state/ChatContext";
@@ -31,7 +24,7 @@ function TopBar({
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
 }) {
-  const { meta, hitCount } = useChat();
+  const { meta } = useChat();
 
   return (
     <header className="relative z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 md:px-5">
@@ -61,35 +54,7 @@ function TopBar({
         )}
       </div>
 
-      <nav className="absolute top-0 left-1/2 hidden h-full -translate-x-1/2 items-stretch gap-1 lg:flex" aria-label="Навигация">
-        <Button variant="ghost" className="h-full rounded-none border-b-2 border-primary text-primary">
-          <LayoutDashboard className="size-4" />
-          Обзор
-        </Button>
-        <Button variant="ghost" className="h-full rounded-none border-b-2 border-transparent text-muted-foreground">
-          <Inbox className="size-4" />
-          Сообщения
-          {meta && (
-            <Badge variant="secondary" className="ml-1">
-              {hitCount > 999 ? `${Math.round(hitCount / 1000)}k` : hitCount}
-            </Badge>
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          disabled
-          className="h-full rounded-none border-b-2 border-transparent text-muted-foreground"
-          title="Скоро"
-        >
-          <Tags className="size-4" />
-          Темы
-        </Button>
-      </nav>
-
       <div className="flex shrink-0 items-center gap-1.5">
-        <Button variant="ghost" size="icon-sm" className="hidden sm:inline-flex" aria-label="Справка">
-          <CircleHelp className="size-4" />
-        </Button>
         <SettingsMenu />
       </div>
     </header>

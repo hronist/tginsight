@@ -12,6 +12,28 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
+  /**
+   * Cross-origin isolation so onnxruntime-web can use SharedArrayBuffer
+   * and multi-threaded WASM. `credentialless` (not require-corp) keeps
+   * Hugging Face / CDN model fetches working without CORP on every asset.
+   */
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin",
+          },
+          {
+            key: "Cross-Origin-Embedder-Policy",
+            value: "credentialless",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

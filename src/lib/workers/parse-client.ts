@@ -131,10 +131,30 @@ export class ParseWorkerClient {
           }
           break;
         }
-        case "error":
-          this.rejectPending(data.message);
+        case "error": {
+          const err = new Error(data.message);
+          if (data.requestId) {
+            const corpus = this.pendingCorpus.get(data.requestId);
+            if (corpus) {
+              this.pendingCorpus.delete(data.requestId);
+              corpus.reject(err);
+            }
+            const count = this.pendingCorpusCount.get(data.requestId);
+            if (count) {
+              this.pendingCorpusCount.delete(data.requestId);
+              count.reject(err);
+            }
+            const msgs = this.pendingMessages.get(data.requestId);
+            if (msgs) {
+              this.pendingMessages.delete(data.requestId);
+              msgs.reject(err);
+            }
+          } else {
+            this.rejectPending(data.message);
+          }
           this.handlers.onError?.(data.message);
           break;
+        }
         case "reset-done":
           this.rejectPending("Parse worker reset");
           this.handlers.onReset?.();

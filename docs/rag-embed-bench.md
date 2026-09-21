@@ -77,6 +77,25 @@ Separation = avg(related) − avg(unrelated). Больше лучше. Узки�
 
 Вывод. MiniLM и EN-potion на русском слабые. e5 лучше разделяет. multilingual Model2Vec быстрее e5 (~12×) и чуть разделяет, но слабее по смыслу на этом smoke.
 
+## Multi-thread WASM (COOP/COEP, 2026-09-21)
+
+В `next.config.ts` выставлены:
+
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: credentialless`
+
+Это включает `crossOriginIsolated` → `SharedArrayBuffer` → onnxruntime-web может поднять пул потоков WASM. В `embed.worker.ts` `env.backends.onnx.wasm.numThreads` ставится до 4 при isolation, иначе 1.
+
+Проверка в Chrome DevTools на `localhost`:
+
+1. Console: `crossOriginIsolated` → `true`
+2. Debug strip (dev): `coi yes`
+3. При загрузке модели: в прогрессе «WASM, N поток.»
+
+`credentialless` выбран вместо `require-corp`, чтобы загрузки моделей с Hugging Face CDN не ломались без CORP на каждом ассете.
+
+WebGPU A/B на этой машине отложен (GPU во вкладке уже был медленнее).
+
 ## Рекомендации (зафиксировано)
 
 1. **Сначала сужать корпус по месяцам** (период фильтра / явный scope). Иначе даже 12× Model2Vec оставляет тяжёлый full-chat.

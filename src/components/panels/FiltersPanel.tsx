@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { CloudUpload, FileJson, Search, Settings2, X } from "lucide-react";
+import { CloudUpload, FileJson, Search, X } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import type { FilterCriteria } from "@/lib/telegram/filter";
@@ -192,75 +192,90 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
   const chips = activeChips(criteria);
   const monthOptionsNewestFirst = [...months].reverse();
 
+  function setQuickPeriod(type: "1m" | "3m" | "all") {
+    if (!meta || months.length === 0) return;
+    const last = months[months.length - 1]!;
+    if (type === "all") {
+      applyFilters({ ...criteria, dateFrom: null, dateTo: null });
+      return;
+    }
+    const count = type === "1m" ? 1 : 3;
+    const fromIndex = Math.max(0, months.length - count);
+    const start = months[fromIndex]!;
+    const bounds = monthsToBounds(start, last);
+    applyFilters({ ...criteria, ...bounds });
+  }
+
   return (
-    <div className="h-full min-h-0 overflow-y-auto p-4">
-      <div className="flex flex-col gap-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-[9px] font-extrabold tracking-widest text-muted-foreground">WORKSPACE</p>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight">Фильтры</h2>
-          </div>
-          <Button variant="ghost" size="icon-sm" aria-label="Настройки фильтров">
-            <Settings2 className="size-4" />
-          </Button>
+    <div className="h-full min-h-0 overflow-y-auto p-4 lg:p-5">
+      <div className="flex flex-col gap-6">
+        <div>
+          <p className="text-[10px] font-bold tracking-[0.15em] text-primary/70 uppercase">workspace</p>
+          <h2 className="mt-0.5 text-xl font-bold tracking-tight text-foreground">Фильтры</h2>
         </div>
 
-        <div className="flex items-stretch gap-2">
-          <button
-            type="button"
-            className={cn(
-              "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-dashed px-3 py-3 text-left transition-colors",
-              dragOver
-                ? "border-primary bg-accent"
-                : "border-primary/40 bg-accent/50 hover:border-primary/60",
-            )}
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              onFile(e.dataTransfer.files?.[0]);
-            }}
-          >
-            <CloudUpload className="size-5 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1">
-              {fileName ? (
-                <>
-                  <b className="block truncate text-sm text-foreground">{fileName}</b>
-                  <small className="text-[10px] text-muted-foreground">
-                    {meta
-                      ? `${meta.chatName} · ${meta.messageCount.toLocaleString()} сообщений`
-                      : "Загружен"}
-                  </small>
-                </>
-              ) : (
-                <>
-                  <b className="block text-sm text-foreground">Загрузить экспорт</b>
-                  <small className="text-[10px] text-muted-foreground">JSON из Telegram</small>
-                </>
-              )}
-            </span>
-            <FileJson className="size-4 shrink-0 text-muted-foreground" />
-          </button>
-          {fileName && (
-            <Button
+        <div className="space-y-3">
+          <SectionLabel>Экспорт чата</SectionLabel>
+          <div className="flex items-stretch gap-2">
+            <button
               type="button"
-              variant="outline"
-              size="icon"
-              className="size-auto shrink-0 self-stretch px-2.5 text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-              aria-label="Очистить экспорт"
-              title="Очистить экспорт"
-              disabled={isBusy}
-              onClick={clearFile}
+              className={cn(
+                "group flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-dashed p-3 text-left transition-all",
+                dragOver
+                  ? "border-primary bg-primary/5 shadow-inner"
+                  : "border-border bg-card hover:border-primary/40 hover:bg-accent/30",
+              )}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                onFile(e.dataTransfer.files?.[0]);
+              }}
             >
-              <X className="size-4" />
-            </Button>
-          )}
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                <CloudUpload className="size-5" />
+              </div>
+              <span className="min-w-0 flex-1">
+                {fileName ? (
+                  <>
+                    <b className="block truncate text-[13px] font-semibold text-foreground">{fileName}</b>
+                    <small className="text-[10px] text-muted-foreground/80 font-medium">
+                      {meta
+                        ? `${meta.chatName} · ${meta.messageCount.toLocaleString()} сообщений`
+                        : "Загружен"}
+                    </small>
+                  </>
+                ) : (
+                  <>
+                    <b className="block text-[13px] font-semibold text-foreground">Загрузить JSON</b>
+                    <small className="text-[10px] text-muted-foreground/80">Официальный экспорт</small>
+                  </>
+                )}
+              </span>
+              <FileJson className="size-4 shrink-0 text-muted-foreground/40" />
+            </button>
+            {fileName && (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-auto shrink-0 self-stretch rounded-xl px-2.5 text-muted-foreground hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive transition-colors"
+                aria-label="Очистить экспорт"
+                title="Очистить экспорт"
+                disabled={isBusy}
+                onClick={clearFile}
+              >
+                <X className="size-4" />
+              </Button>
+            )}
+          </div>
         </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -269,18 +284,8 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
           onChange={(e) => onFile(e.target.files?.[0])}
         />
 
-        <div className="space-y-2">
-          <SectionLabel>Проект</SectionLabel>
-          <div className="flex h-8 items-center justify-between rounded-lg border border-input bg-background px-2.5 text-xs text-muted-foreground">
-            <span className="flex items-center gap-2 truncate">
-              <span className="size-1.5 rounded-full bg-primary" />
-              {meta ? meta.chatName : "Нет данных"}
-            </span>
-          </div>
-        </div>
-
         {chips.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <SectionLabel>Активные фильтры</SectionLabel>
             <div className="flex flex-wrap gap-1.5">
               {chips.map((chip) => (
@@ -295,12 +300,12 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
           </div>
         )}
 
-        <div className="space-y-2">
-          <SectionLabel>Поиск по сообщениям</SectionLabel>
-          <div className="relative">
-            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <div className="space-y-3">
+          <SectionLabel>Поиск</SectionLabel>
+          <div className="group relative">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground/60 transition-colors group-focus-within:text-primary" />
             <Input
-              className="pl-8"
+              className="h-10 rounded-xl pl-9 bg-card border-border/80 focus-visible:ring-primary/20"
               placeholder="Ключевые слова, regex…"
               value={keywordInput}
               onChange={(e) => setKeywordInput(e.target.value)}
@@ -309,14 +314,36 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
           </div>
         </div>
 
-        <div className="space-y-2">
-          <SectionLabel>Период</SectionLabel>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Период</SectionLabel>
+            {meta && (
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { id: "1m", label: "1м" },
+                    { id: "3m", label: "3м" },
+                    { id: "all", label: "Все" },
+                  ] as const
+                ).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setQuickPeriod(p.id)}
+                    className="h-5 rounded px-1.5 text-[9px] font-bold text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {months.length > 0 ? (
             <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <p className="text-[10px] text-muted-foreground">С месяца</p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-medium text-muted-foreground/80 pl-0.5">С месяца</p>
                 <select
-                  className={selectClass}
+                  className={cn(selectClass, "rounded-xl bg-card border-border/80")}
                   value={monthFrom ?? ""}
                   disabled={!meta || isBusy}
                   onChange={(e) => setMonthFrom(e.target.value || null)}
@@ -329,10 +356,10 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
                   ))}
                 </select>
               </div>
-              <div className="space-y-1">
-                <p className="text-[10px] text-muted-foreground">По месяц</p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-medium text-muted-foreground/80 pl-0.5">По месяц</p>
                 <select
-                  className={selectClass}
+                  className={cn(selectClass, "rounded-xl bg-card border-border/80")}
                   value={monthTo ?? ""}
                   disabled={!meta || isBusy}
                   onChange={(e) => setMonthTo(e.target.value || null)}
@@ -347,21 +374,24 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Загрузите экспорт</p>
+            <p className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-xl border border-dashed text-center">
+              Загрузите экспорт чата
+            </p>
           )}
         </div>
 
-        <div className="space-y-2">
-          <SectionLabel>Автор</SectionLabel>
+        <div className="space-y-3">
+          <SectionLabel>Авторы</SectionLabel>
           <Input
+            className="h-10 rounded-xl bg-card border-border/80 focus-visible:ring-primary/20"
             placeholder="Имя, @handle…"
             value={authorInput}
             onChange={(e) => setAuthorInput(e.target.value)}
             disabled={!meta || isBusy}
           />
           {authors.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {authors.slice(0, 6).map((a) => (
+            <div className="flex flex-wrap gap-1.5">
+              {authors.slice(0, 8).map((a) => (
                 <Button
                   key={a.fromId}
                   type="button"
@@ -382,20 +412,26 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
           )}
         </div>
 
-        {meta && (
-          <p className="text-[10px] text-muted-foreground">
-            {truncated
-              ? `Показаны новейшие ${MAX_UI_HITS} совпадений (есть ещё)`
-              : `${hitCount.toLocaleString()} совпадений`}
-          </p>
-        )}
+        <div className="pt-2">
+          <Button
+            className="w-full h-10 rounded-xl font-semibold shadow-lg shadow-primary/10"
+            disabled={!meta || isBusy}
+            onClick={() => applyFilters(buildCriteria())}
+          >
+            {isBusy ? "Применяем…" : "Применить фильтры"}
+          </Button>
+          
+          {meta && (
+            <p className="mt-3 text-center text-[10px] font-medium text-muted-foreground/70 tabular-nums">
+              {truncated
+                ? `Показаны новейшие ${MAX_UI_HITS} совпадений (есть ещё)`
+                : `${hitCount.toLocaleString()} совпадений`}
+            </p>
+          )}
+        </div>
 
-        <Button className="w-full" disabled={!meta || isBusy} onClick={() => applyFilters(buildCriteria())}>
-          Применить фильтры
-        </Button>
-
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          AI-настройки — в меню «Настройки» в шапке. Экспорт не покидает браузер.
+        <p className="text-[10px] leading-relaxed text-muted-foreground/60 italic text-center px-4">
+          Экспорт не покидает браузер. AI-настройки — в меню в шапке.
         </p>
       </div>
     </div>

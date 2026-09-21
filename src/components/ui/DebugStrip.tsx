@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useChat } from "@/state/ChatContext";
 import { hasActiveFilter } from "@/lib/telegram/filter";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
@@ -15,6 +16,13 @@ export function DebugStrip() {
     criteria,
     meta,
   } = useChat();
+  const [coi, setCoi] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setCoi(
+      typeof crossOriginIsolated !== "undefined" && crossOriginIsolated,
+    );
+  }, []);
 
   if (process.env.NODE_ENV !== "development") return null;
 
@@ -30,14 +38,22 @@ export function DebugStrip() {
       title="Только в dev-сборке"
     >
       <span>filter #{filterSeq}</span>
-      <span>hits {hitCount}{truncated ? `/${MAX_UI_HITS}+` : ""}</span>
-      <span>cards {hitCount} (chains {chainMessageCount})</span>
+      <span>
+        hits {hitCount}
+        {truncated ? `/${MAX_UI_HITS}+` : ""}
+      </span>
+      <span>
+        cards {hitCount} (chains {chainMessageCount})
+      </span>
       <span>range [{range}]</span>
       <span>kw {keywords}</span>
       <span>state {isBusy ? "busy" : "idle"}</span>
       <span>meta {meta ? meta.messageCount.toLocaleString() : "—"}</span>
       <span>active {hasActiveFilter(criteria) ? "yes" : "no"}</span>
       <span>hits[] {hits.length}</span>
+      <span title="crossOriginIsolated — нужно для SharedArrayBuffer / multi-thread WASM">
+        coi {coi === null ? "…" : coi ? "yes" : "no"}
+      </span>
     </div>
   );
 }
