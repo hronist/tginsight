@@ -17,8 +17,17 @@ import type { NormalizedMessage } from "@/types/telegram";
 
 let index: ParseIndex | null = null;
 
+const NO_EXPORT =
+  "Экспорт не загружен в память. Снова выберите result.json (после обновления страницы парсер сбрасывается).";
+
 function post(message: ParseWorkerResponse) {
   self.postMessage(message);
+}
+
+function requireIndex(requestId?: string): ParseIndex | null {
+  if (index) return index;
+  post({ type: "error", message: NO_EXPORT, requestId });
+  return null;
 }
 
 function parseExport(fileBuffer: ArrayBuffer) {
@@ -79,16 +88,14 @@ function parseExport(fileBuffer: ArrayBuffer) {
 const MAX_FILTER_HITS = MAX_UI_HITS;
 
 function runFilter(criteria: ParseWorkerRequest & { type: "filter" }) {
-  if (!index) {
-    post({ type: "error", message: "No export loaded. Parse a file first." });
-    return;
-  }
+  const idx = requireIndex();
+  if (!idx) return;
 
   const maxHits = criteria.maxHits ?? MAX_FILTER_HITS;
 
   const { hits, truncated } = filterMessages(
-    index.orderedIds,
-    index.byId,
+    idx.orderedIds,
+    idx.byId,
     criteria.criteria,
     (current, total) => {
       post({
@@ -115,18 +122,16 @@ function runFilter(criteria: ParseWorkerRequest & { type: "filter" }) {
 
 /** Export indexable messages in orderedIds order, batched by offset into orderedIds. */
 function exportRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus" }) {
-  if (!index) {
-    post({ type: "error", message: "No export loaded. Parse a file first." });
-    return;
-  }
+  const idx = requireIndex(req.requestId);
+  if (!idx) return;
 
   const monthFrom = req.monthFrom ?? null;
   const monthTo = req.monthTo ?? null;
   const messages: NormalizedMessage[] = [];
   let i = Math.max(0, req.offset);
   const limit = Math.max(1, req.limit);
-  while (i < index.orderedIds.length && messages.length < limit) {
-    const m = index.byId.get(index.orderedIds[i]!);
+  while (i < idx.orderedIds.length && messages.length < limit) {
+    const m = idx.byId.get(idx.orderedIds[i]!);
     i += 1;
     if (
       m &&
@@ -142,21 +147,19 @@ function exportRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus" }) {
     requestId: req.requestId,
     messages,
     nextOffset: i,
-    done: i >= index.orderedIds.length,
+    done: i >= idx.orderedIds.length,
   });
 }
 
 function countRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus-count" }) {
-  if (!index) {
-    post({ type: "error", message: "No export loaded. Parse a file first." });
-    return;
-  }
+  const idx = requireIndex(req.requestId);
+  if (!idx) return;
 
   const monthFrom = req.monthFrom ?? null;
   const monthTo = req.monthTo ?? null;
   let total = 0;
-  for (const id of index.orderedIds) {
-    const m = index.byId.get(id);
+  for (const id of idx.orderedIds) {
+    const m = idx.byId.get(id);
     if (
       m &&
       isIndexable(m) &&
@@ -175,20 +178,18 @@ function countRagCorpus(req: ParseWorkerRequest & { type: "rag-corpus-count" }) 
 
 /** Resolve message ids to FilterHit chains (same shape as UI filter hits). */
 function getMessages(req: ParseWorkerRequest & { type: "get-messages" }) {
-  if (!index) {
-    post({ type: "error", message: "No export loaded. Parse a file first." });
-    return;
-  }
+  const idx = requireIndex(req.requestId);
+  if (!idx) return;
 
   const hits: FilterHit[] = [];
   const seen = new Set<number>();
   for (const id of req.ids) {
     if (seen.has(id)) continue;
     seen.add(id);
-    if (!index.byId.has(id)) continue;
+    if (!idx.byId.has(id)) continue;
     hits.push({
       matchedId: id,
-      chain: buildReplyChain(id, index.byId),
+      chain: buildReplyChain(id, idx.byId),
     });
   }
 

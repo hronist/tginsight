@@ -80,6 +80,7 @@ export type ParseWorkerMessages = {
 export type ParseWorkerError = {
   type: "error";
   message: string;
+  requestId?: string;
 };
 
 export type ParseWorkerResponse =

@@ -147,6 +147,8 @@ export function MessageStream() {
     getScrollElement: () => parentRef.current,
     estimateSize: () => 180,
     overscan: 4,
+    // React 19: measureElement must not flushSync during render
+    useFlushSync: false,
   });
 
   function toggleExpanded(id: number) {
