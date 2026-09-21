@@ -319,15 +319,17 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
             <SectionLabel>Период</SectionLabel>
             {meta && (
               <div className="flex items-center gap-1">
-                {[
-                  { id: "1m", label: "1м" },
-                  { id: "3m", label: "3м" },
-                  { id: "all", label: "Все" },
-                ].map((p) => (
+                {(
+                  [
+                    { id: "1m", label: "1м" },
+                    { id: "3m", label: "3м" },
+                    { id: "all", label: "Все" },
+                  ] as const
+                ).map((p) => (
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => setQuickPeriod(p.id as any)}
+                    onClick={() => setQuickPeriod(p.id)}
                     className="h-5 rounded px-1.5 text-[9px] font-bold text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                   >
                     {p.label}

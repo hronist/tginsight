@@ -38,8 +38,6 @@ export function IntelligencePanel() {
     indexCount,
     indexing,
     asking,
-    progressLabel,
-    error,
     history,
     openHistoryAsk,
     modelBanner,

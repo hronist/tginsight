@@ -7,7 +7,6 @@ import { resolve } from "node:path";
 import {
   buildParseIndex,
   isIndexable,
-  normalizeMessage,
 } from "../src/lib/telegram/normalize.ts";
 import {
   MIN_RAG_LETTERS,

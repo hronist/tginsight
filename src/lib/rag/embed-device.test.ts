@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  normalizeEmbedDevice,
-  resolveEmbedLoadOrder,
-} from "@/lib/rag/embed-device";
+import { resolveEmbedLoadOrder } from "@/lib/rag/embed-device";
 
 describe("resolveEmbedLoadOrder", () => {
   it("forces WASM only when preference is wasm", () => {
