@@ -25,7 +25,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 export function SettingsMenu() {
-  const { activeEmbedDevice } = useRag();
+  const { activeEmbedDevice, activeWasmThreads } = useRag();
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
   const [hydrated, setHydrated] = useState(false);
@@ -207,7 +207,10 @@ export function SettingsMenu() {
                       <Label className="text-xs">Устройство эмбеддингов</Label>
                       {activeEmbedDevice && (
                         <Badge variant="outline" className="text-[10px]">
-                          сейчас {embedDeviceLabel(activeEmbedDevice)}
+                          сейчас{" "}
+                          {embedDeviceLabel(activeEmbedDevice, {
+                            wasmThreads: activeWasmThreads,
+                          })}
                         </Badge>
                       )}
                     </div>

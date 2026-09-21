@@ -134,6 +134,8 @@ type RagContextValue = {
   modelReady: boolean;
   /** Last successful embed backend after loadModel. */
   activeEmbedDevice: EmbedDevice | null;
+  /** WASM thread pool size after last load (null if WebGPU / unknown). */
+  activeWasmThreads: number | null;
   modelBanner: boolean;
   modelBannerMb: number;
   dismissModelBanner: () => void;
@@ -166,6 +168,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<RagIndexStatus>({ kind: "absent" });
   const [modelReady, setModelReady] = useState(false);
   const [activeEmbedDevice, setActiveEmbedDevice] = useState<EmbedDevice | null>(
+    null,
+  );
+  const [activeWasmThreads, setActiveWasmThreads] = useState<number | null>(
     null,
   );
   const [modelBanner, setModelBanner] = useState(false);
@@ -242,9 +247,12 @@ export function RagProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      onModelReady: (device) => {
+      onModelReady: (device, meta) => {
         setModelReady(true);
         setActiveEmbedDevice(device);
+        setActiveWasmThreads(
+          device === "wasm" ? (meta?.wasmThreads ?? null) : null,
+        );
       },
       onError: (message) => {
         setError(message);
@@ -341,7 +349,9 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setModelBanner(false);
         const embedBatch =
           client.device === "webgpu" ? EMBED_BATCH_WEBGPU : EMBED_BATCH_WASM;
-        const deviceLabel = embedDeviceLabel(client.device);
+        const deviceLabel = embedDeviceLabel(client.device, {
+          wasmThreads: client.wasmThreads,
+        });
         setStatus({
           kind: "building",
           current: 0,
@@ -590,6 +600,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       indexCount,
       modelReady,
       activeEmbedDevice,
+      activeWasmThreads,
       modelBanner,
       modelBannerMb,
       dismissModelBanner,
@@ -613,6 +624,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       indexCount,
       modelReady,
       activeEmbedDevice,
+      activeWasmThreads,
       modelBanner,
       modelBannerMb,
       dismissModelBanner,

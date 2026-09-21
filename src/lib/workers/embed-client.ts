@@ -17,7 +17,10 @@ type PendingQuery = {
 
 export type EmbedClientHandlers = {
   onProgress?: (progress: EmbedWorkerProgress) => void;
-  onModelReady?: (device: EmbedDevice) => void;
+  onModelReady?: (
+    device: EmbedDevice,
+    meta?: { wasmThreads?: number; crossOriginIsolated?: boolean },
+  ) => void;
   onError?: (message: string) => void;
 };
 
@@ -30,10 +33,16 @@ export class EmbedWorkerClient {
   private loadedDevicePreference: EmbedDevicePreference | null = null;
   private modelPromise: Promise<void> | null = null;
   private activeDevice: EmbedDevice = "wasm";
+  private activeWasmThreads: number | null = null;
 
   /** Backend used by the last successful loadModel. */
   get device(): EmbedDevice {
     return this.activeDevice;
+  }
+
+  /** WASM thread pool size from last model-ready (null if unknown / WebGPU). */
+  get wasmThreads(): number | null {
+    return this.activeWasmThreads;
   }
 
   constructor(handlers: EmbedClientHandlers = {}) {
@@ -56,7 +65,12 @@ export class EmbedWorkerClient {
         case "model-ready":
           this.modelReady = true;
           this.activeDevice = data.device;
-          this.handlers.onModelReady?.(data.device);
+          this.activeWasmThreads =
+            data.device === "wasm" ? (data.wasmThreads ?? null) : null;
+          this.handlers.onModelReady?.(data.device, {
+            wasmThreads: data.wasmThreads,
+            crossOriginIsolated: data.crossOriginIsolated,
+          });
           break;
         case "batch-done":
           this.batchResolver?.(data);
@@ -221,6 +235,7 @@ export class EmbedWorkerClient {
     this.loadedDevicePreference = null;
     this.modelPromise = null;
     this.activeDevice = "wasm";
+    this.activeWasmThreads = null;
     this.pendingQueries.clear();
   }
 }

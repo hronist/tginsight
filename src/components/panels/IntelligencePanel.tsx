@@ -50,6 +50,7 @@ export function IntelligencePanel() {
     dismissModelBanner,
     buildIndex,
     activeEmbedDevice,
+    activeWasmThreads,
   } = useRag();
 
   const [entireChat, setEntireChat] = useState(false);
@@ -194,7 +195,9 @@ export function IntelligencePanel() {
                     <Badge variant="outline" className="h-5 px-2 text-[10px] font-bold border-primary/20 text-primary/80 bg-primary/5">
                       {embedLabel}
                       {activeEmbedDevice
-                        ? ` · ${embedDeviceLabel(activeEmbedDevice)}`
+                        ? ` · ${embedDeviceLabel(activeEmbedDevice, {
+                            wasmThreads: activeWasmThreads,
+                          })}`
                         : ""}
                     </Badge>
                   </div>

@@ -35,6 +35,28 @@ import type {
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
+type OnnxWasmEnv = { numThreads?: number };
+
+/** Enable ORT WASM thread pool when the page is cross-origin isolated. */
+function configureWasmThreads(): { isolated: boolean; threads: number } {
+  const onnx = env.backends.onnx as { wasm?: OnnxWasmEnv };
+  if (!onnx.wasm) onnx.wasm = {};
+
+  const isolated =
+    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
+  const hw =
+    typeof navigator !== "undefined" && navigator.hardwareConcurrency
+      ? navigator.hardwareConcurrency
+      : 1;
+  // Cap at 4: leaves headroom for UI + parse worker; ORT uses numThreads-1 pool workers.
+  const threads = isolated ? Math.min(Math.max(hw, 1), 4) : 1;
+  onnx.wasm.numThreads = threads;
+  return { isolated, threads };
+}
+
+const wasmThreads = configureWasmThreads();
+
+
 type PipelineBackend = {
   kind: "pipeline";
   extractor: FeatureExtractionPipeline;
@@ -190,12 +212,18 @@ async function ensureModel(
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i]!;
     const deviceLabel = attempt.device === "webgpu" ? "WebGPU" : "WASM";
+    const threadHint =
+      attempt.device === "wasm"
+        ? wasmThreads.isolated
+          ? `, ${wasmThreads.threads} поток.`
+          : ", 1 поток (нет COOP/COEP)"
+        : "";
     post({
       type: "progress",
       stage: "model",
       current: 0,
       total: 100,
-      label: `Загрузка ${spec.label} (${deviceLabel}, ~${spec.approxDownloadMb} МБ)…`,
+      label: `Загрузка ${spec.label} (${deviceLabel}${threadHint}, ~${spec.approxDownloadMb} МБ)…`,
     });
 
     try {
@@ -204,7 +232,12 @@ async function ensureModel(
           ? await loadModel2VecBackend(spec, attempt.device)
           : await loadPipelineBackend(spec, attempt.device);
       loadedPreference = devicePreference;
-      post({ type: "model-ready", device: attempt.device });
+      post({
+        type: "model-ready",
+        device: attempt.device,
+        wasmThreads: wasmThreads.threads,
+        crossOriginIsolated: wasmThreads.isolated,
+      });
       return backend;
     } catch (error) {
       lastError = error;

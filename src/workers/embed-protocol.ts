@@ -29,6 +29,9 @@ export type EmbedWorkerProgress = {
 export type EmbedWorkerModelReady = {
   type: "model-ready";
   device: EmbedDevice;
+  /** ORT WASM thread pool size (1 if not cross-origin isolated). */
+  wasmThreads?: number;
+  crossOriginIsolated?: boolean;
 };
 
 export type EmbedWorkerBatchDone = {

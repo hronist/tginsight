@@ -44,6 +44,13 @@ export function resolveEmbedLoadOrder(
   return gpuAvailable ? ["webgpu", "wasm"] : ["wasm"];
 }
 
-export function embedDeviceLabel(device: EmbedDevice): string {
-  return device === "webgpu" ? "WebGPU" : "WASM";
+export function embedDeviceLabel(
+  device: EmbedDevice,
+  options?: { wasmThreads?: number | null },
+): string {
+  if (device === "webgpu") return "WebGPU";
+  const n = options?.wasmThreads;
+  if (n != null && n > 1) return `WASM · ${n} пот.`;
+  if (n === 1) return "WASM · 1 пот.";
+  return "WASM";
 }

@@ -3,6 +3,7 @@
 import { ArrowLeft, X, Search, Sparkles } from "lucide-react";
 import { useRag } from "@/state/RagContext";
 import { Button } from "@/components/ui/button";
+import { MarkdownBody } from "@/components/ui/MarkdownBody";
 import { RagAskBar } from "@/components/panels/RagAskBar";
 import { MessageHitRow } from "@/components/panels/MessageHitRow";
 
@@ -66,9 +67,7 @@ export function AskResultPanel() {
               <div className="relative overflow-hidden rounded-2xl bg-card p-5 ring-1 ring-border/80 shadow-sm">
                 <div className="absolute top-0 left-0 h-full w-1 bg-amber-500/40" />
                 {askView.answer ? (
-                  <p className="text-[14px] leading-7 whitespace-pre-wrap text-foreground/90">
-                    {askView.answer}
-                  </p>
+                  <MarkdownBody>{askView.answer}</MarkdownBody>
                 ) : asking ? (
                   <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
                     <Sparkles className="size-4 animate-spin text-amber-500/60" />
