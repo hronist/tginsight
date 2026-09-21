@@ -20,6 +20,12 @@ import {
   resolveEmbedLoadOrder,
   type EmbedDevicePreference,
 } from "@/lib/rag/embed-device";
+import {
+  embeddingTransferList,
+  l2NormalizeFloat32,
+  rowsToFloat32,
+  splitBatchBuffer,
+} from "@/lib/rag/embed-vectors";
 import type {
   EmbedDevice,
   EmbedWorkerRequest,
@@ -51,8 +57,8 @@ let loadedPreference: EmbedDevicePreference | null = null;
 /** Serialize async handlers — overlapping embed-batch calls corrupt shared model state. */
 let workChain: Promise<void> = Promise.resolve();
 
-function post(message: EmbedWorkerResponse) {
-  self.postMessage(message);
+function post(message: EmbedWorkerResponse, transfer: Transferable[] = []) {
+  self.postMessage(message, transfer);
 }
 
 function clearBackend() {
@@ -225,19 +231,29 @@ async function ensureModel(
     : new Error("Не удалось загрузить модель эмбеддингов");
 }
 
-function l2Normalize(rows: number[][]): number[][] {
-  return rows.map((row) => {
-    let n = 0;
-    for (const x of row) n += x * x;
-    const s = Math.sqrt(n) || 1;
-    return row.map((x) => x / s);
-  });
+function tensorBatchToRows(tensor: {
+  data?: ArrayLike<number>;
+  dims?: number[];
+  tolist?: () => number[] | number[][];
+}): Float32Array[] {
+  const dims = tensor.dims;
+  if (tensor.data && dims && dims.length >= 2) {
+    const batch = dims[0]!;
+    const dim = dims[dims.length - 1]!;
+    return splitBatchBuffer(tensor.data, batch, dim);
+  }
+  if (typeof tensor.tolist === "function") {
+    const list = tensor.tolist();
+    if (Array.isArray(list[0])) return rowsToFloat32(list as number[][]);
+    return rowsToFloat32([list as number[]]);
+  }
+  throw new Error("Unsupported embedding tensor shape");
 }
 
 async function embedModel2Vec(
   m2v: Model2VecBackend,
   texts: string[],
-): Promise<number[][]> {
+): Promise<Float32Array[]> {
   const { input_ids } = await m2v.tokenizer(texts, {
     add_special_tokens: false,
     return_tensor: false,
@@ -254,15 +270,15 @@ async function embedModel2Vec(
     input_ids: new Tensor("int64", flat, [flat.length]),
     offsets: new Tensor("int64", offsets, [offsets.length]),
   });
-  const embeddings = (out as { embeddings: { tolist: () => number[][] } })
+  const embeddings = (out as { embeddings: Parameters<typeof tensorBatchToRows>[0] })
     .embeddings;
-  return l2Normalize(embeddings.tolist());
+  return l2NormalizeFloat32(tensorBatchToRows(embeddings));
 }
 
 async function embedTexts(
   texts: string[],
   prefix: string,
-): Promise<number[][]> {
+): Promise<Float32Array[]> {
   if (!backend) throw new Error("Embedding model is not loaded");
   const prepared = texts.map((t) => (prefix ? `${prefix}${t}` : t));
   if (backend.kind === "pipeline") {
@@ -270,9 +286,9 @@ async function embedTexts(
       pooling: "mean",
       normalize: true,
     });
-    const list = output.tolist() as number[] | number[][];
-    if (Array.isArray(list[0])) return list as number[][];
-    return [list as number[]];
+    return tensorBatchToRows(
+      output as Parameters<typeof tensorBatchToRows>[0],
+    );
   }
   return embedModel2Vec(backend, prepared);
 }
@@ -307,15 +323,19 @@ async function handleMessage(msg: EmbedWorkerRequest) {
         msg.items.map((i) => i.text),
         backend.spec.docPrefix,
       );
-      post({
-        type: "batch-done",
-        batchIndex: msg.batchIndex,
-        batchTotal: msg.batchTotal,
-        vectors: msg.items.map((item, i) => ({
-          id: item.id,
-          embedding: vectors[i] ?? [],
-        })),
-      });
+      const payload = msg.items.map((item, i) => ({
+        id: item.id,
+        embedding: vectors[i] ?? new Float32Array(0),
+      }));
+      post(
+        {
+          type: "batch-done",
+          batchIndex: msg.batchIndex,
+          batchTotal: msg.batchTotal,
+          vectors: payload,
+        },
+        embeddingTransferList(payload),
+      );
       break;
     }
     case "embed-query": {
@@ -324,11 +344,15 @@ async function handleMessage(msg: EmbedWorkerRequest) {
         [msg.text],
         backend.spec.queryPrefix,
       );
-      post({
-        type: "query-done",
-        requestId: msg.requestId,
-        embedding: embedding ?? [],
-      });
+      const row = embedding ?? new Float32Array(0);
+      post(
+        {
+          type: "query-done",
+          requestId: msg.requestId,
+          embedding: row,
+        },
+        embeddingTransferList([{ embedding: row }]),
+      );
       break;
     }
     default:

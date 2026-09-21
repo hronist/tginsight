@@ -53,10 +53,10 @@ export function MessageCard({
   return (
     <article
       className={cn(
-        "rounded-xl bg-card px-3.5 py-3 ring-1 transition-colors",
+        "group rounded-xl bg-card px-3.5 py-3 ring-1 transition-all",
         matched
-          ? "ring-border/70 hover:ring-primary/35"
-          : "bg-muted/40 opacity-75 ring-border/40",
+          ? "ring-border/70 hover:shadow-md hover:ring-primary/40"
+          : "bg-muted/40 opacity-75 ring-border/40 hover:opacity-100 hover:ring-border/60",
       )}
     >
       <header className="flex items-center gap-2.5">
@@ -76,18 +76,18 @@ export function MessageCard({
         </div>
       </header>
 
-      <p className="mt-2.5 text-[13px] leading-6 break-words whitespace-pre-wrap text-foreground/90">
+      <p className="mt-2 text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">
         {highlightText(message.text, highlightPatterns)}
       </p>
 
-      <footer className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] tabular-nums text-muted-foreground">
+      <footer className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] tabular-nums text-muted-foreground/60">
         <span className="inline-flex items-center gap-0.5">
-          <Hash className="size-2.5 opacity-70" />
+          <Hash className="size-2.5" />
           {message.id}
         </span>
         {message.month && (
           <>
-            <span aria-hidden className="text-border">
+            <span aria-hidden className="opacity-40">
               ·
             </span>
             <span>{message.month}</span>
@@ -95,7 +95,7 @@ export function MessageCard({
         )}
         {message.fromId && (
           <>
-            <span aria-hidden className="text-border">
+            <span aria-hidden className="opacity-40">
               ·
             </span>
             <span className="truncate">{message.fromId}</span>
@@ -180,7 +180,7 @@ export function MessageHitRow({
           className={cn(
             msg.id !== hit.matchedId &&
               expanded &&
-              "ml-2 border-l-2 border-border/70 pl-3",
+              "ml-3 border-l-2 border-border/50 pl-3",
           )}
         >
           <MessageCard

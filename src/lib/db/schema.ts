@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
+import { invalidateBm25Cache } from "@/lib/rag/bm25";
 
 export type ChunkRow = {
   id: string;
@@ -46,6 +47,7 @@ class TgChatDb extends Dexie {
 export const db = new TgChatDb();
 
 export async function clearChatData(): Promise<void> {
+  invalidateBm25Cache();
   await Promise.all([
     db.chunks.clear(),
     db.queryHistory.clear(),
