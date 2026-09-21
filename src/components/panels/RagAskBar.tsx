@@ -16,7 +16,7 @@ type RagAskBarProps = {
 };
 
 export function RagAskBar({ className, initialPrompt = "" }: RagAskBarProps) {
-  const { indexCount, indexing, asking, ask } = useRag();
+  const { indexCount, indexing, asking, ask, indexStale } = useRag();
   const [prompt, setPrompt] = useState(initialPrompt);
   const [mode, setMode] = useState<"retrieve" | "llm">("retrieve");
   /** null until mount — avoids SSR/client localStorage hydration mismatch. */
@@ -30,18 +30,20 @@ export function RagAskBar({ className, initialPrompt = "" }: RagAskBarProps) {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const indexReady = indexCount > 0;
+  const indexReady = indexCount > 0 && !indexStale;
   const keyReady = hasKey === true;
   // Until hydrated, do not disable AI on the assumption there is no key
   // (matches server render: enabled styling only gated by index).
   const llmDisabled =
     !indexReady || indexing || asking || (hasKey !== null && !hasKey);
 
-  const modeHint = !indexReady
+  const modeHint = !indexCount
     ? "Сначала соберите RAG-индекс справа"
-    : mode === "llm"
-      ? "Семантический поиск + ответ модели"
-      : "Локальный семантический поиск по смыслу";
+    : indexStale
+      ? "Период фильтра изменился — пересоберите RAG-индекс"
+      : mode === "llm"
+        ? "Семантический поиск + ответ модели"
+        : "Локальный семантический поиск по смыслу";
 
   async function onSend() {
     const trimmed = prompt.trim();
@@ -79,11 +81,11 @@ export function RagAskBar({ className, initialPrompt = "" }: RagAskBarProps) {
               value="retrieve"
               size="sm"
               className="h-8 px-2.5 text-[10px]"
-              title="Только поиск"
+              title="Только семантический поиск (RAG)"
               disabled={!indexReady || indexing || asking}
             >
               <Search className="mr-1.5 size-3" />
-              Поиск
+              Поиск (RAG)
             </ToggleGroupItem>
             <ToggleGroupItem
               value="llm"
