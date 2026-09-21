@@ -20,6 +20,7 @@ import { embedDeviceLabel } from "@/lib/rag/embed-device";
 import type { EmbedDevice } from "@/workers/embed-protocol";
 import {
   monthsFromCriteria,
+  scopesMatch,
 } from "@/lib/rag/corpus-scope";
 import {
   indexChunkCount,
@@ -36,6 +37,7 @@ import {
   getIndexCount,
   getIndexedAt,
   getMetaEmbedModel,
+  getMetaRagMonthRange,
   listQueryHistory,
   loadReusableEmbeddings,
   searchChunks,
@@ -149,6 +151,8 @@ type RagContextValue = {
   buildIndex: (options?: { entireChat?: boolean }) => Promise<void>;
   ask: (prompt: string, mode?: "retrieve" | "llm") => Promise<void>;
   refreshHistory: () => Promise<void>;
+  /** True when an index exists but was built for a different period than current filters. */
+  indexStale: boolean;
 };
 
 const RagContext = createContext<RagContextValue | null>(null);
@@ -176,6 +180,10 @@ export function RagProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<QueryHistoryRow[]>([]);
   const [askView, setAskView] = useState<AskView | null>(null);
+  const [indexedScope, setIndexedScope] = useState<{
+    monthFrom: string | null;
+    monthTo: string | null;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const askGenerationRef = useRef(0);
 
@@ -226,6 +234,25 @@ export function RagProvider({ children }: { children: ReactNode }) {
       ? (effectiveStatus.label ?? null)
       : null;
 
+  const desiredScope = useMemo(
+    () =>
+      resolveBuildScope({
+        entireChat: false,
+        dateFrom: criteria.dateFrom,
+        dateTo: criteria.dateTo,
+        months,
+      }),
+    [criteria.dateFrom, criteria.dateTo, months],
+  );
+
+  const indexStale = Boolean(
+    meta &&
+      indexCount > 0 &&
+      !indexing &&
+      indexedScope &&
+      !scopesMatch(desiredScope, indexedScope),
+  );
+
   useEffect(() => {
     const client = new EmbedWorkerClient({
       onProgress: (progress) => {
@@ -272,12 +299,18 @@ export function RagProvider({ children }: { children: ReactNode }) {
       setStatus({ kind: "absent" });
       setHistory([]);
       setError(null);
+      setIndexedScope(null);
       return;
     }
     void (async () => {
       const count = await getIndexCount();
       const builtAt = (await getIndexedAt()) ?? Date.now();
+      const range = await getMetaRagMonthRange();
       if (count > 0) {
+        setIndexedScope({
+          monthFrom: range.monthFrom || null,
+          monthTo: range.monthTo || null,
+        });
         setStatus({
           kind: "ready",
           chatId: meta.chatId,
@@ -285,6 +318,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
           builtAt,
         });
       } else {
+        setIndexedScope(null);
         setStatus({ kind: "absent" });
       }
       setHistory(await listQueryHistory());
@@ -437,6 +471,10 @@ export function RagProvider({ children }: { children: ReactNode }) {
           scope.monthFrom ?? "",
           scope.monthTo ?? "",
         );
+        setIndexedScope({
+          monthFrom: scope.monthFrom ?? null,
+          monthTo: scope.monthTo ?? null,
+        });
         setStatus({
           kind: "ready",
           chatId: meta.chatId,
@@ -462,6 +500,17 @@ export function RagProvider({ children }: { children: ReactNode }) {
 
       if (effectiveStatus.kind !== "ready" || effectiveStatus.chunkCount === 0) {
         setError("Сначала соберите RAG-индекс");
+        return;
+      }
+
+      const filterScope = resolveBuildScope({
+        entireChat: false,
+        dateFrom: criteria.dateFrom,
+        dateTo: criteria.dateTo,
+        months,
+      });
+      if (indexedScope && !scopesMatch(filterScope, indexedScope)) {
+        setError("Период фильтра изменился — пересоберите RAG-индекс");
         return;
       }
 
@@ -581,7 +630,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
         setAsking(false);
       }
     },
-    [effectiveStatus, getMessagesByIds, refreshHistory],
+    [effectiveStatus, criteria.dateFrom, criteria.dateTo, months, indexedScope, getMessagesByIds, refreshHistory],
   );
 
   const value = useMemo<RagContextValue>(
@@ -607,6 +656,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       buildIndex,
       ask,
       refreshHistory,
+      indexStale,
     }),
     [
       effectiveStatus,
@@ -628,6 +678,7 @@ export function RagProvider({ children }: { children: ReactNode }) {
       buildIndex,
       ask,
       refreshHistory,
+      indexStale,
     ],
   );
 

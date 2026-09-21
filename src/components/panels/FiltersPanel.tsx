@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { CloudUpload, FileJson, Search, Settings2, X } from "lucide-react";
+import { CloudUpload, FileJson, Search, X } from "lucide-react";
 import { useChat } from "@/state/ChatContext";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
 import type { FilterCriteria } from "@/lib/telegram/filter";
@@ -209,14 +209,9 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
   return (
     <div className="h-full min-h-0 overflow-y-auto p-4 lg:p-5">
       <div className="flex flex-col gap-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-[10px] font-bold tracking-[0.15em] text-primary/70 uppercase">workspace</p>
-            <h2 className="mt-0.5 text-xl font-bold tracking-tight text-foreground">Фильтры</h2>
-          </div>
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label="Настройки фильтров">
-            <Settings2 className="size-4" />
-          </Button>
+        <div>
+          <p className="text-[10px] font-bold tracking-[0.15em] text-primary/70 uppercase">workspace</p>
+          <h2 className="mt-0.5 text-xl font-bold tracking-tight text-foreground">Фильтры</h2>
         </div>
 
         <div className="space-y-3">
@@ -393,11 +388,13 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
             disabled={!meta || isBusy}
           />
           {authors.length > 0 && (
-            <div className="grid grid-cols-2 gap-1.5">
-              {authors.slice(0, 4).map((a) => (
-                <button
+            <div className="flex flex-wrap gap-1.5">
+              {authors.slice(0, 8).map((a) => (
+                <Button
                   key={a.fromId}
                   type="button"
+                  variant="outline"
+                  size="xs"
                   title={a.fromId}
                   disabled={isBusy}
                   onClick={() =>
@@ -405,32 +402,21 @@ export function FiltersPanel({ onUploaded }: { onUploaded?: () => void }) {
                       prev ? `${prev}, ${a.fromId}` : a.fromId,
                     )
                   }
-                  className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/50 p-1.5 text-left transition-all hover:border-primary/30 hover:bg-primary/5 group disabled:opacity-50"
                 >
-                  <div className="size-5 rounded bg-muted flex items-center justify-center text-[8px] font-bold text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
-                    {a.from?.[0] ?? "?"}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[10px] font-semibold text-foreground/80 leading-none">
-                      {a.from}
-                    </p>
-                    <p className="text-[8px] text-muted-foreground/60 tabular-nums">
-                      {a.count} сообщ.
-                    </p>
-                  </div>
-                </button>
+                  {a.from} · {a.count}
+                </Button>
               ))}
             </div>
           )}
         </div>
 
         <div className="pt-2">
-          <Button 
-            className="w-full h-10 rounded-xl font-semibold shadow-lg shadow-primary/10" 
-            disabled={!meta || isBusy} 
+          <Button
+            className="w-full h-10 rounded-xl font-semibold shadow-lg shadow-primary/10"
+            disabled={!meta || isBusy}
             onClick={() => applyFilters(buildCriteria())}
           >
-            Применить фильтры
+            {isBusy ? "Применяем…" : "Применить фильтры"}
           </Button>
           
           {meta && (

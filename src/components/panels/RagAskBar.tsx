@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sparkles, Send, Search } from "lucide-react";
 import { useRag } from "@/state/RagContext";
 import { loadAiSettings } from "@/lib/settings/storage";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -17,18 +16,25 @@ type RagAskBarProps = {
 };
 
 export function RagAskBar({ className, initialPrompt = "" }: RagAskBarProps) {
-  const { indexCount, indexing, asking, ask } = useRag();
+  const { indexCount, indexing, asking, ask, indexStale } = useRag();
   const [prompt, setPrompt] = useState(initialPrompt);
   const [mode, setMode] = useState<"retrieve" | "llm">("retrieve");
+  // localStorage only after mount — avoids SSR/client hydration mismatch
+  const [hasKey, setHasKey] = useState(false);
 
-  const indexReady = indexCount > 0;
-  const hasKey = Boolean(loadAiSettings().apiKey.trim());
+  useEffect(() => {
+    setHasKey(Boolean(loadAiSettings().apiKey.trim()));
+  }, [mode]);
 
-  const modeHint = !indexReady
-    ? "Сначала соберите RAG-индекс справа"
-    : mode === "llm"
-      ? "Семантический поиск + ответ модели"
-      : "Локальный семантический поиск по смыслу";
+  const indexReady = indexCount > 0 && !indexStale;
+
+  const modeHint = !indexCount
+    ? "Сначала соберите RAG-индекс (кнопка над строкой поиска)"
+    : indexStale
+      ? "Период фильтра изменился — пересоберите RAG-индекс"
+      : mode === "llm"
+        ? "Семантический поиск + ответ модели"
+        : "Локальный семантический поиск по смыслу";
 
   async function onSend() {
     const trimmed = prompt.trim();
@@ -65,11 +71,11 @@ export function RagAskBar({ className, initialPrompt = "" }: RagAskBarProps) {
               value="retrieve"
               size="sm"
               className="h-8 px-2.5 text-[10px]"
-              title="Только поиск"
+              title="Только семантический поиск (RAG)"
               disabled={!indexReady || indexing || asking}
             >
               <Search className="mr-1.5 size-3" />
-              Поиск
+              Поиск (RAG)
             </ToggleGroupItem>
             <ToggleGroupItem
               value="llm"

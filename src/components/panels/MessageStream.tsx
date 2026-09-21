@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  Filter,
   MessageCircle,
   Sparkles,
   X,
@@ -12,7 +11,6 @@ import { useChat } from "@/state/ChatContext";
 import { useRag } from "@/state/RagContext";
 import { hasActiveFilter } from "@/lib/telegram/filter";
 import { MAX_UI_HITS } from "@/lib/telegram/limits";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { RagAskBar } from "@/components/panels/RagAskBar";
@@ -39,15 +37,29 @@ function RagBuildBanner({
   indexing,
   progressLabel,
   indexableCount,
+  stale,
   onBuild,
   onDismiss,
 }: {
   indexing: boolean;
   progressLabel: string | null;
   indexableCount: number;
+  stale: boolean;
   onBuild: () => void;
   onDismiss: () => void;
 }) {
+  const title = indexing
+    ? "Собираем RAG-индекс…"
+    : stale
+      ? "Период фильтра изменился — пересоберите RAG"
+      : "Следующий шаг: собрать RAG-индекс";
+
+  const description = indexing
+    ? (progressLabel ?? "Индексация сообщений чата…")
+    : stale
+      ? "Поиск и AI работают только по собранному индексу. После смены периода слева нужно пересобрать индекс под новый диапазон."
+      : `Нужен один раз после загрузки и после смены периода. Индекс строится по фильтру слева (~${indexableCount.toLocaleString()} сообщ. в выбранном диапазоне, либо весь чат — справа).`;
+
   return (
     <div className="mx-4 mt-1 mb-3 rounded-xl border border-primary/30 bg-accent/50 px-3.5 py-3 md:mx-5">
       <div className="flex items-start gap-3">
@@ -56,12 +68,10 @@ function RagBuildBanner({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold tracking-tight text-foreground">
-            {indexing ? "Собираем RAG-индекс…" : "Следующий шаг: собрать RAG-индекс"}
+            {title}
           </p>
           <p className="mt-1 text-[12px] leading-5 break-words text-muted-foreground">
-            {indexing
-              ? (progressLabel ?? "Индексация сообщений чата…")
-              : `Нужен один раз после загрузки. AI будет искать по всему чату (~${indexableCount.toLocaleString()} сообщений), не только по фильтру слева.`}
+            {description}
           </p>
           {!indexing && (
             <Button
@@ -71,11 +81,11 @@ function RagBuildBanner({
               onClick={onBuild}
             >
               <Sparkles className="size-3.5" />
-              Собрать RAG-индекс
+              {stale ? "Пересобрать RAG-индекс" : "Собрать RAG-индекс"}
             </Button>
           )}
         </div>
-        {!indexing && (
+        {!indexing && !stale && (
           <Button
             type="button"
             variant="ghost"
@@ -107,6 +117,7 @@ export function MessageStream() {
     indexing,
     progressLabel,
     buildIndex,
+    indexStale,
   } = useRag();
   const [focused, setFocused] = useState(0);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set());
@@ -117,12 +128,16 @@ export function MessageStream() {
     setRagBannerDismissed(false);
   }, [meta?.chatId]);
 
-  const indexReady = indexCount > 0;
+  // Reset dismiss when filters make the index stale — rebuild CTA must stay visible.
+  useEffect(() => {
+    if (indexStale) setRagBannerDismissed(false);
+  }, [indexStale]);
+
+  const indexReady = indexCount > 0 && !indexStale;
   const showRagBanner =
     Boolean(meta) &&
-    !isBusy &&
-    (!indexReady || indexing) &&
-    (indexing || !ragBannerDismissed);
+    (indexing || !indexReady || indexStale) &&
+    (indexing || indexStale || !ragBannerDismissed);
 
   const highlightPatterns = useMemo(
     () => criteria.keywordPatterns.filter(Boolean),
@@ -187,21 +202,6 @@ export function MessageStream() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm">
-            <Filter className="size-3.5" />
-            Фильтр
-            {criteria.keywordPatterns.length > 0 && (
-              <Badge variant="secondary" className="ml-1">
-                {criteria.keywordPatterns.length}
-              </Badge>
-            )}
-          </Button>
-        </div>
-      </div>
-
-      <div className="mx-4 mt-3 mb-2 md:mx-5">
-        <RagAskBar />
       </div>
 
       {showRagBanner && meta && (
@@ -209,29 +209,37 @@ export function MessageStream() {
           indexing={indexing}
           progressLabel={progressLabel}
           indexableCount={meta.indexableCount}
+          stale={indexStale}
           onBuild={() => void buildIndex()}
           onDismiss={() => setRagBannerDismissed(true)}
         />
       )}
 
+      <div className="mx-4 mt-3 mb-2 md:mx-5">
+        <RagAskBar />
+      </div>
+
       {!meta ? (
         <EmptyPanel title="Нет загруженного экспорта">
           Перетащите <code className="rounded bg-muted px-1">result.json</code> в левую панель.
         </EmptyPanel>
-      ) : isBusy ? (
+      ) : isBusy && hits.length === 0 ? (
         <EmptyPanel title="Обработка…">
-          Файл загружается и фильтруется. Сообщения появятся после применения фильтра.
+          Файл загружается и фильтруется. Прогресс — в полоске сверху, как при сборке RAG.
         </EmptyPanel>
-      ) : !hasActiveFilter(criteria) ? (
+      ) : !hasActiveFilter(criteria) && !isBusy ? (
         <EmptyPanel title="Фильтр не задан">
           Выберите период, автора или ключевые слова и нажмите «Применить фильтры». По умолчанию — последний месяц, до {MAX_UI_HITS} сообщений.
         </EmptyPanel>
-      ) : hits.length === 0 ? (
+      ) : hits.length === 0 && !isBusy ? (
         <EmptyPanel title="Нет совпадений">
           Измените фильтры в левой панели и нажмите «Применить».
         </EmptyPanel>
       ) : (
-        <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 md:px-5">
+        <div
+          ref={parentRef}
+          className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 md:px-5"
+        >
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((item) => {
               const hit = hits[item.index];

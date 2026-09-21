@@ -50,10 +50,11 @@ export function IntelligencePanel() {
     dismissModelBanner,
     buildIndex,
     activeEmbedDevice,
+    indexStale,
   } = useRag();
 
   const [entireChat, setEntireChat] = useState(false);
-  const indexReady = indexCount > 0;
+  const indexReady = indexCount > 0 && !indexStale;
 
   const embedSettings = loadAiSettings();
   const embedLabel = getEmbedModel(embedSettings.embedModel).label;
@@ -82,7 +83,7 @@ export function IntelligencePanel() {
     months,
   ]);
 
-  const topAuthors = useMemo(() => authors.slice(0, 3), [authors]);
+  const topAuthors = useMemo(() => authors.slice(0, 8), [authors]);
   const totalAuthorMsgs = useMemo(
     () => authors.reduce((sum, a) => sum + a.count, 0) || 1,
     [authors],
@@ -167,22 +168,27 @@ export function IntelligencePanel() {
                 <div className="min-w-0 flex-1">
                   <h3 className="text-xs font-bold tracking-tight text-foreground">RAG-индекс</h3>
                   <p className="text-[10px] font-medium text-muted-foreground/70 truncate">
-                    {indexReady
-                      ? `${indexCount.toLocaleString()} чанков · поиск готов`
-                      : meta
-                        ? "индекс не собран"
-                        : "нет данных"}
+                    {indexing
+                      ? "сборка…"
+                      : indexStale
+                        ? "устарел — сменился период фильтра"
+                        : indexReady
+                          ? `${indexCount.toLocaleString()} чанков · поиск готов`
+                          : meta
+                            ? "индекс не собран"
+                            : "нет данных"}
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="p-4 space-y-4">
-              {meta && !indexReady && !indexing && (
+              {meta && (!indexReady || indexStale) && !indexing && (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
                   <p className="text-[10px] leading-relaxed text-foreground/80 font-medium italic">
-                    Индекс строится по периоду фильтра слева. После сборки
-                    спрашивайте в строке поиска AI над лентой.
+                    {indexStale
+                      ? "Период фильтра слева изменился. Пересоберите индекс — иначе поиск и AI смотрят в старый диапазон."
+                      : "Индекс строится по периоду фильтра слева. После сборки спрашивайте в строке поиска над лентой."}
                   </p>
                 </div>
               )}
@@ -250,6 +256,8 @@ export function IntelligencePanel() {
                     <RefreshCcw className="mr-2 size-3.5 animate-spin" />
                     Собираем…
                   </>
+                ) : indexStale ? (
+                  "Пересобрать под фильтр"
                 ) : indexReady ? (
                   "Пересобрать индекс"
                 ) : (
@@ -257,9 +265,14 @@ export function IntelligencePanel() {
                 )}
               </Button>
 
-              {indexCount > 0 && !indexing && (
+              {indexCount > 0 && !indexing && !indexStale && (
                 <p className="text-center text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest">
                   готов к работе
+                </p>
+              )}
+              {indexStale && !indexing && (
+                <p className="text-center text-[9px] font-bold text-amber-600/80 uppercase tracking-widest">
+                  нужна пересборка
                 </p>
               )}
             </div>
